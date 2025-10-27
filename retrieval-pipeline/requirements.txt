@@ -1,0 +1,8 @@
+# Retrieval Pipeline Dependencies
+
+# Core dependencies (already installed from build-indexes):
+# - sentence-transformers>=2.2.0
+# - qdrant-client>=1.7.0
+
+# No additional dependencies required
+# (sentence-transformers and qdrant-client are sufficient)

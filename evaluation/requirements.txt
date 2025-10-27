@@ -1,0 +1,6 @@
+# Evaluation Dependencies
+
+# Core evaluation uses Python standard library (json, re, difflib, dataclasses)
+
+# For code validation and execution testing
+vtk>=9.5.0

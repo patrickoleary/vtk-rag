@@ -1,0 +1,7 @@
+# Grounding & Prompting Dependencies
+
+# No additional dependencies required!
+# Uses Python standard library only for core functionality
+
+# Optional: For token counting (more accurate than char estimation)
+# tiktoken>=0.5.0

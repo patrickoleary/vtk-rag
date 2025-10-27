@@ -1,0 +1,7 @@
+# Corpus Preparation Dependencies
+
+# Core preparation scripts use only Python standard library
+# No dependencies required!
+
+# Optional: For visualizations with analyze_corpus.py --visualize
+matplotlib>=3.5.0

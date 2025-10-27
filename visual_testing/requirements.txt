@@ -1,0 +1,11 @@
+# VTK Visual Testing Requirements
+
+# VTK with Python bindings
+vtk>=9.5.0
+
+# Array operations
+numpy>=1.24.0            # Image array manipulation
+
+# Image processing and comparison
+Pillow>=10.0.0           # Image loading/saving (PNG)
+scikit-image>=0.21.0     # SSIM comparison, rgb2gray
