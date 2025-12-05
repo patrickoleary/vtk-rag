@@ -1,595 +1,457 @@
-# VTK RAG: Retrieval-Augmented Generation for VTK Documentation
+# VTK RAG
 
-A production-ready Retrieval-Augmented Generation (RAG) system that transforms natural language queries about VTK (Visualization Toolkit) into validated, executable Python code with explanations and citations.
+Retrieval-Augmented Generation for VTK code and documentation.
 
----
-
-## Purpose
-
-**Problem:** VTK has a large, complex API (2,900+ classes) with extensive documentation scattered across examples, tests, and API references. Developers need:
-- Fast code generation for visualization tasks
-- Accurate API documentation lookup
-- Validated, executable code (not hallucinations)
-- Citations to learn from real examples
-
-**Solution:** A RAG system that:
-1. **Indexes** ~131,000 chunks of VTK documentation (125K API docs, 3.6K code examples, 1.5K explanations, 300 images)
-2. **Retrieves** relevant documentation for any VTK query
-3. **Generates** Python code using LLMs with grounded prompts
-4. **Validates** code for API correctness and security
-5. **Executes** code in Docker sandbox to verify functionality
-
-**Result:** Query `"How do I create a cylinder?"` → Get working VTK code + explanation + citations in seconds.
-
----
-
-## Architecture
-
-The system implements a **7-stage RAG pipeline** centered around `query.py`:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        query.py                             │
-│              (Unified Query Interface)                       │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-        ┌─────────────┴─────────────┐
-        │  Sequential Pipeline       │
-        │  (Multi-Step Orchestrator) │
-        └─────────────┬───────────────┘
-                      │
-    ┌─────────────────┼─────────────────┐
-    │                 │                 │
-    v                 v                 v
-┌─────────┐    ┌───────────┐    ┌──────────┐
-│Retrieval│───→│ Grounding │───→│   LLM    │
-│Pipeline │    │ Prompts   │    │Generation│
-└─────────┘    └───────────┘    └──────────┘
-    │                                  │
-    v                                  v
-┌─────────┐                    ┌──────────────┐
-│ Qdrant  │                    │  Validation  │
-│ Vector  │                    │  & Execution │
-│  Index  │                    └──────────────┘
-└─────────┘
-    │
-    v
-┌──────────────────────────────────────┐
-│  Processed Corpus (~131K chunks)     │
-│  • API docs (~125,700)               │
-│  • Code examples (~3,600)            │
-│  • Explanations (~1,500)             │
-│  • Images (~300)                     │
-└──────────────────────────────────────┘
-```
-
-**Data Flow:**
-1. **User Query** → `query.py`
-2. **Query Decomposition** → Break complex queries into steps
-3. **Retrieval** → Find relevant docs for each step (Qdrant)
-4. **Grounding** → Build prompts with retrieved context
-5. **Generation** → LLM generates code + explanation
-6. **Validation** → Check API correctness & security
-7. **Execution** (optional) → Run code in Docker sandbox
-
----
-
-## Repository Structure
-
-Components are organized in the order they're used in the pipeline:
-
-### **1. Data Preparation** (`data/`, `prepare-corpus/`)
-
-**Purpose:** Transform raw VTK documentation into searchable chunks
-
-**Components:**
-- `data/raw/` - Input JSONL files (API docs, examples, tests)
-- `prepare-corpus/chunk_corpus.py` - Main chunking orchestrator
-  - Structure-aware chunking (preserves code blocks, explanations)
-  - Metadata extraction (VTK classes, complexity, categories)
-  - Deduplication and quality filters
-
-**Concepts:**
-- **Chunk** - Self-contained unit of documentation (code example, explanation, API method)
-- **Metadata** - Searchable attributes (VTK classes used, source type, complexity)
-- **Structured Chunking** - Respects semantic boundaries (don't split functions mid-code)
-
-**Output:** `data/processed/*.jsonl` - ~131,000 chunks ready for indexing
-
-📖 [Detailed docs](prepare-corpus/README.md)
-
----
-
-### **2. Index Building** (`build-indexes/`)
-
-**Purpose:** Create searchable vector + keyword index in Qdrant
-
-**Components:**
-- `build_qdrant_index.py` - Builds Qdrant collection
-  - Embeds chunks using sentence-transformers
-  - Creates payload with metadata for filtering
-  - Batched upload for performance
-
-**Concepts:**
-- **Vector Search** - Semantic similarity using embeddings
-- **Hybrid Search** - Combines vector + BM25 keyword search
-- **Metadata Filtering** - Filter by source type, complexity, VTK classes
-
-**Output:** Qdrant collection `vtk_docs` with ~131K vectors
-
-📖 [Detailed docs](build-indexes/README.md)
-
----
-
-### **3. Retrieval Pipeline** (`retrieval-pipeline/`)
-
-**Purpose:** Find most relevant documentation for a query
-
-**Components:**
-- `vtk_retrieval_pipeline.py` - Multi-stage retrieval
-  - Query rewriting (VTK-specific normalization)
-  - Vector search (initial candidates)
-  - Cross-encoder reranking (precision refinement)
-
-**Concepts:**
-- **Query Rewriting** - Normalize VTK class names, expand acronyms, add synonyms
-- **Cross-Encoder Reranking** - Re-score candidates with transformer model
-- **Top-K Retrieval** - Return most relevant K documents per query/step
-
-**Output:** Ranked list of relevant chunks with scores
-
-📖 [Detailed docs](retrieval-pipeline/README.md)
-
----
-
-### **4. Grounding & Prompting** (`grounding-prompting/`)
-
-**Purpose:** Build LLM prompts with retrieved context and constraints
-
-**Components:**
-- `code_generation_prompt.py` - Code generation templates
-- `api_documentation_prompt.py` - API lookup templates  
-- `query_decomposition_prompt.py` - Step breakdown templates
-- `concept_explanation_prompt.py` - Explanation templates
-
-**Concepts:**
-- **Grounded Prompting** - Include retrieved docs as context
-- **Citation Enforcement** - Require LLM to cite sources
-- **Refusal Policy** - Explicitly forbid hallucinations
-- **Structured Output** - Request JSON with code, explanation, citations
-
-**Output:** Formatted prompts ready for LLM
-
-📖 [Detailed docs](grounding-prompting/README.md)
-
----
-
-### **5. LLM Generation** (`llm-generation/`)
-
-**Purpose:** Generate code and explanations using LLMs
-
-**Components:**
-- `sequential_pipeline.py` - **Main orchestrator**
-  - Multi-step query handling
-  - Per-step retrieval & generation
-  - Result assembly and deduplication
-- `llm_client.py` - Multi-provider LLM interface
-  - OpenAI, Anthropic, Google, local models
-  - Streaming and token counting
-- `code_validator.py` - Syntax and import validation
-- `security_validator.py` - Security checks (blocks dangerous patterns)
-
-**Concepts:**
-- **Sequential Generation** - Generate code step-by-step for complex queries
-- **Multi-Provider** - Abstract LLM interface for flexibility
-- **Validation** - Catch errors before execution
-- **Refinement** - Iterative fixing with LLM
-
-**Output:** Validated Python code + explanation + citations
-
-📖 [Detailed docs](llm-generation/README.md)
-
----
-
-### **6. API Validation** (`api-mcp/`)
-
-**Purpose:** Detect VTK API hallucinations (non-existent classes/methods)
-
-**Components:**
-- `vtk_validator.py` - MCP-based validator
-  - Tracks VTK classes and methods
-  - Validates imports, method calls
-  - Suggests corrections for errors
-- `vtk_api_server.py` - VTK API database
-  - 2,900+ classes with methods
-  - Fast fuzzy matching for suggestions
-
-**Concepts:**
-- **API Hallucination** - LLM invents methods/classes that don't exist
-- **Static Analysis** - Parse code to find API usage
-- **Automatic Fixing** - Replace hallucinations with correct API calls
-- **MCP Protocol** - Model Context Protocol for validation
-
-**Output:** API validation results with fix suggestions
-
-**Results:** 
-- Detects 10% of generated code has API errors
-- 90%+ automatic fix rate
-- <5ms validation per query
-
-📖 [Detailed docs](api-mcp/README.md)
-
----
-
-### **7. Post-Processing** (`post-processing/`)
-
-**Purpose:** Parse LLM responses into structured components
-
-**Components:**
-- `json_response_processor.py` - JSON parser and validator
-  - Extracts code, explanation, citations
-  - Validates structure
-  - Optional LLM enrichment
-
-**Concepts:**
-- **Structured Output** - Predictable JSON format
-- **Component Extraction** - Separate code, explanation, metadata
-- **Enrichment** - Optionally enhance explanations with LLM
-
-**Output:** Structured response object
-
-📖 [Detailed docs](post-processing/README.md)
-
----
-
-### **8. Visual Validation** (`visual_testing/`, `evaluation/`)
-
-**Purpose:** Execute generated code to verify correctness
-
-**Components:**
-- `visual_evaluator.py` - Docker sandbox executor
-  - Runs code in isolated container
-  - Captures visual output (PNG images)
-  - Detects execution errors
-- `docker_sandbox.py` - Container management
-  - Timeout enforcement
-  - Memory limits
-  - Cleanup
-
-**Concepts:**
-- **Sandbox Execution** - Isolated environment for safety
-- **Visual Regression** - Compare output images (SSIM similarity)
-- **Timeout** - Kill runaway code (30s default)
-- **Baseline Comparison** - Detect visual changes
-
-**Output:** Execution results + optional visual output
-
-**Performance:**
-- 100% execution success (10/10 test queries)
-- 80% visual output generation
-- 3.3s average execution time
-
-📖 [Detailed docs](visual_testing/README.md)
-
----
-
-## Testing (`tests/`)
-
-The repository includes comprehensive testing at multiple levels:
-
-### **Unit Tests**
-
-Test individual components in isolation using mocks:
-
-- `tests/llm-generation/` - Pipeline orchestration, validation
-- `tests/grounding-prompting/` - Prompt templates
-- `tests/post-processing/` - JSON parsing
-- `tests/api_mcp/` - API validation
-- `tests/visual_testing/` - Docker sandbox
-
-**Run unit tests:**
-```bash
-./run_all_tests.sh
-```
-
-**Results:** 20+ unit tests covering all major components
-
-### **Integration Tests**
-
-Test end-to-end flows with real components:
-
-- `tests/integration/` - Complete query pipeline
-- `tests/evaluation/` - Full RAG workflow
-- `tests/test_query.py` - `query.py` CLI interface (20 tests)
-
-**Key test:** `test_query.py` validates:
-- Query routing (code vs API vs explanation)
-- Visual testing integration
-- Output file generation
-- CLI argument parsing
-- Error handling
-
-### **Visual Regression Tests**
-
-Verify generated code produces expected visual output:
-
-- Compare generated images to baselines
-- SSIM (Structural Similarity) scoring
-- Detect rendering regressions
-
-**Run with visual tests:**
-```bash
-RUN_VISUAL_TESTS=1 ./run_all_tests.sh
-```
-
-### **Test Philosophy**
-
-1. **Fast Unit Tests** - Mock external dependencies (LLM, Qdrant, Docker)
-2. **Integration Tests** - Use real components but small datasets
-3. **Visual Tests** - Opt-in (require Docker, slower)
-4. **CI-Ready** - All tests runnable in automated pipelines
-
----
-
-## Evaluation (`evaluation/`)
-
-Comprehensive metrics to measure RAG pipeline quality:
-
-### **Purpose**
-
-Answer the key questions:
-1. **Does retrieval find relevant docs?** (Retrieval metrics)
-2. **Is generated code correct?** (Code quality metrics)
-3. **Does code execute?** (Execution metrics)
-4. **Are there API hallucinations?** (API validation metrics)
-5. **Does visual output match expectations?** (Visual regression metrics)
-
-### **Components**
-
-- `test_set_builder.py` - Generate test queries from corpus
-- `retrieval_metrics.py` - Recall@K, nDCG@K, MRR
-- `end_to_end_metrics.py` - Code exactness, correctness
-- `evaluator.py` - Main evaluation orchestrator
-- `visual_evaluator.py` - Execution and visual testing
-
-### **Metrics Computed**
-
-#### **1. Retrieval Metrics** (Information Retrieval)
-
-Measure how well the system finds relevant documentation:
-
-- **Recall@K** - % of relevant docs in top K results
-  - Target: >80% Recall@5 (most relevant docs in top 5)
-- **nDCG@K** - Normalized Discounted Cumulative Gain (ranking quality)
-  - Target: >0.7 (good ranking of results)
-- **MRR** - Mean Reciprocal Rank (position of first relevant doc)
-  - Target: >0.8 (relevant doc near top)
-
-**How measured:** Compare retrieved chunks to ground-truth relevant chunks from gold examples
-
-#### **2. Code Quality Metrics**
-
-Measure correctness of generated code:
-
-- **Exactness** - Similarity to gold code (BLEU-like)
-  - Target: >20% (code style varies, but should be similar)
-- **Correctness** - Has all necessary components (imports, classes, methods)
-  - Target: >75% (most code should be complete)
-- **Syntax Validity** - Parses without syntax errors
-  - Target: 100% (always generate valid Python)
-
-**How measured:** Compare generated code to gold examples using AST parsing and text similarity
-
-#### **3. Validation Metrics**
-
-Measure automatic error detection and fixing:
-
-- **Syntax Validation Coverage** - % of code validated
-  - Target: 100% (always validate)
-- **Syntax Error Rate** - % with syntax errors detected
-  - Target: <5% (rare errors)
-- **Validation Fix Rate** - % of errors automatically fixed
-  - Target: >90% (most errors fixed by retry)
-
-**How measured:** Track validation attempts, errors found, and successful fixes
-
-#### **4. API Validation Metrics** (Hallucination Detection)
-
-Measure VTK API correctness:
-
-- **API Error Detection Rate** - % of code with hallucinations
-  - Current: ~10% (LLMs occasionally hallucinate)
-- **API Fix Rate** - % of detected errors automatically corrected
-  - Current: 90%+ (most hallucinations fixed)
-- **Validation Speed** - Time to validate per query
-  - Current: <5ms (near-instant)
-
-**How measured:** Parse generated code, check all VTK API calls against database, track fix success
-
-**Results:** Automatic API validation catches 10% of generations with hallucinations and fixes 90%+ before execution
-
-#### **5. Execution Metrics**
-
-Measure if code actually runs:
-
-- **Execution Success Rate** - % of code that runs without errors
-  - **Current: 100% (10/10 test queries)** ✅
-- **Execution Time** - Average time to execute
-  - Current: 3.3s average
-- **Timeout Rate** - % of code that exceeds 30s timeout
-  - Current: 0% (after query refinements)
-
-**How measured:** Execute code in Docker sandbox, capture exit codes and timing
-
-#### **6. Visual Validation Metrics**
-
-Measure visual output quality:
-
-- **Visual Output Rate** - % of successful executions that produce images
-  - Current: 80% (8/10 visualization queries, 2/10 are file operations)
-- **Visual Regression Rate** - % matching baseline images
-  - Current: 37.5% exact matches (SSIM >0.95)
-- **Average Similarity** - Mean SSIM score vs baselines
-  - Current: 0.38 (different camera angles/colors, but correct geometry)
-
-**How measured:** Compare generated PNG images to baseline images using SSIM (Structural Similarity Index)
-
-**Note:** Visual regression is loose - different colors/angles are OK as long as geometry is correct
-
-### **Running Evaluation**
-
-```bash
-# Retrieval only (fast, free)
-python evaluation/evaluator.py --mode retrieval --num-examples 50
-
-# End-to-end (uses LLM, costs money)
-python evaluation/evaluator.py --mode end-to-end --num-examples 10
-
-# With visual testing (requires Docker)
-CREATE_BASELINES=1 RUN_VISUAL_TESTS=1 python evaluation/evaluator.py \
-  --mode end-to-end \
-  --num-examples 10 \
-  --enable-visual-testing
-```
-
-### **Latest Results**
-
-**Test Set:** 10 VTK visualization queries  
-**LLM:** Claude Sonnet 4  
-**Date:** October 2025
-
-| Metric | Result | Target |
-|--------|--------|--------|
-| **Execution Success** | **100%** ✅ | >80% |
-| **Visual Output Generation** | 80% | >70% |
-| **API Validation Coverage** | 100% | 100% |
-| **API Hallucination Rate** | 10% | <15% |
-| **API Fix Rate** | 90%+ | >85% |
-| **Avg Execution Time** | 3.3s | <10s |
-| **Visual Regression Pass** | 37.5% | >30% |
-| **Visual Similarity (Avg)** | 0.38 | >0.3 |
-
-**Key Achievement:** 100% execution success rate after query refinements (explicit instructions about data loading, avoiding Python loops, specifying filters)
-
-📖 [Detailed docs](evaluation/README.md)
-
----
-
-## Query Interface (`query.py`)
-
-The unified entry point to the system:
-
-```bash
-# Code generation
-python query.py "How do I create a cylinder in VTK?"
-
-# API documentation
-python query.py "What methods does vtkPolyDataMapper have?"
-
-# With visual validation
-python query.py "Create a red sphere" --visual-test
-
-# Save to file
-python query.py "Show me a cone example" --output result.json
-
-# Enhanced explanations
-python query.py "Explain the VTK pipeline" --enrich
-```
-
-**See [USAGE.md](USAGE.md) for complete documentation.**
-
----
+Transform natural language queries into relevant VTK code examples and class/method documentation using semantic search with hybrid vector + BM25 indexing.
 
 ## Quick Start
 
-### 1. Setup
-
 ```bash
-./setup.sh
-source .venv/bin/activate
-```
+# Install
+pip install -e .
 
-### 2. Configure
-
-```bash
-cp .env.example .env
-# Edit .env and add LLM API key
-```
-
-### 3. Add Data
-
-Place JSONL files in `data/raw/`:
-- `vtk-python-docs.jsonl` (~2,900 classes)
-- `vtk-python-examples.jsonl` (~850 examples)
-- `vtk-python-tests.jsonl` (~900 tests)
-
-### 4. Build Index
-
-```bash
 # Start Qdrant
-docker run -d -p 6333:6333 qdrant/qdrant
+docker run -d -p 6333:6333 -p 6334:6334 qdrant/qdrant
 
-# Run pipeline (corpus + index only)
-python build.py
+# Build (chunk + index)
+vtk-rag build
 
-# Or: Build with Docker image for visual testing
-python build.py --build-docker
+# Search
+vtk-rag search "create a sphere"
 ```
 
-**Time:** 
-- Without Docker: ~5-10 minutes
-- With Docker: ~15-25 minutes (first build downloads VTK + dependencies)
-
-**Options:**
-- `--build-docker` - Also build Docker image for visual testing (enables `--visual-test` flag in `query.py`)
-
-### 5. Query
+## CLI
 
 ```bash
-python query.py "How do I create a cylinder in VTK?"
+vtk-rag chunk              # Process raw data into chunks
+vtk-rag index              # Build Qdrant indexes
+vtk-rag build              # Full pipeline (chunk + index)
+vtk-rag clean              # Remove processed data and indexes
+vtk-rag search "query"     # Search code and docs
+```
+
+Or use module invocation: `python -m vtk_rag <command>`
+
+### Search Options
+
+```bash
+vtk-rag search "query" -n 10           # Limit results
+vtk-rag search "query" --hybrid        # Hybrid search (dense + BM25)
+vtk-rag search "query" --bm25          # BM25 keyword search
+vtk-rag search "query" --code          # Code chunks only
+vtk-rag search "query" --docs          # Doc chunks only
+vtk-rag search "query" --role source_geometric  # Filter by role
+vtk-rag search "query" -v              # Verbose (show content)
+```
+
+## Python API
+
+```python
+from vtk_rag.retrieval import Retriever, FilterBuilder
+
+retriever = Retriever()
+
+# Semantic search
+results = retriever.search("create a sphere", collection="vtk_code")
+
+# Hybrid search (dense + BM25)
+results = retriever.hybrid_search("vtkSphereSource", collection="vtk_docs")
+
+# BM25 keyword search
+results = retriever.bm25_search("vtkConeSource SetRadius")
+
+# Filtered search
+results = retriever.search(
+    "render pipeline",
+    filters={"role": "source_geometric", "visibility_score": {"gte": 0.7}},
+)
+
+# Convenience methods
+results = retriever.search_code("how to create a cylinder")
+results = retriever.search_docs("vtkPolyDataMapper")
+results = retriever.search_by_class("vtkSphereSource")
+
+# Access results
+for r in results:
+    print(f"{r.class_name}: {r.synopsis}")
+    print(f"  Score: {r.score:.3f}")
+    print(f"  Code:\n{r.content}")
+```
+
+## Testing
+
+```bash
+python -m pytest tests/           # Run tests with coverage
+python -m pytest tests/ --no-cov  # Without coverage
 ```
 
 ---
 
-## Project Status
+# Architecture
 
-✅ **Production Ready**
-- 100% execution success rate on test queries
-- Comprehensive testing (unit, integration, visual)
-- Complete documentation
-- Multi-provider LLM support
-- API hallucination detection & fixing
+## Data Flow
 
-**Current Limitations:**
-- Visual regression is loose (different colors/angles OK)
-- LLM costs ~$0.001-0.01 per query
-- Requires Qdrant + Docker for full functionality
-- Index rebuild takes ~10 minutes
+```
+Raw Data (JSONL)                    
+    │                               
+    ▼                               
+┌─────────┐     ┌─────────┐        
+│ Chunker │────→│ Indexer │        
+└─────────┘     └─────────┘        
+    │               │              
+    ▼               ▼              
+code-chunks.jsonl   Qdrant         
+doc-chunks.jsonl    Collections    
+                        │          
+                        ▼          
+                  ┌───────────┐    
+                  │ Retriever │    
+                  └───────────┘    
+                        │          
+                        ▼          
+                  SearchResults    
+```
 
-**Future Work:**
-- Streaming responses
-- Caching layer for common queries
-- UI/web interface
-- Fine-tuned embeddings for VTK domain
-- Expanded test coverage (>10 queries)
+## Collections
 
----
-
-## Documentation
-
-- **[USAGE.md](USAGE.md)** - Complete query.py guide with examples
-- **[prepare-corpus/README.md](prepare-corpus/README.md)** - Corpus preparation
-- **[build-indexes/README.md](build-indexes/README.md)** - Index building
-- **[retrieval-pipeline/README.md](retrieval-pipeline/README.md)** - Retrieval system
-- **[grounding-prompting/README.md](grounding-prompting/README.md)** - Prompt engineering
-- **[llm-generation/README.md](llm-generation/README.md)** - LLM orchestration
-- **[api-mcp/README.md](api-mcp/README.md)** - API validation
-- **[post-processing/README.md](post-processing/README.md)** - Response parsing
-- **[visual_testing/README.md](visual_testing/README.md)** - Docker sandbox
-- **[evaluation/README.md](evaluation/README.md)** - Metrics & testing
+| Collection | Chunks | Description |
+|------------|--------|-------------|
+| `vtk_code` | ~15,700 | Code examples from VTK examples/tests |
+| `vtk_docs` | ~32,800 | Class/method documentation |
 
 ---
 
-## License
+# Chunking Module
 
-MIT License - provided as-is for VTK documentation processing.
+Semantic chunking for VTK Python code and class/method documentation.
+
+## Code Chunks
+
+### Chunk Types
+
+| Type | Description |
+|------|-------------|
+| **Visualization Pipeline** | property→mapper→actor groups |
+| **Rendering Infrastructure** | camera/lights→renderer→window→interactor groups |
+| **vtkmodules.{module}** | sources, filters, readers, writers (individual chunks) |
+
+### Semantic Grouping
+
+The `LifecycleAnalyzer` tracks VTK object lifecycles and groups them:
+
+1. **Visualization pipelines** - Groups property + mapper + actor via `SetMapper`/`SetProperty`
+2. **Rendering infrastructure** - Combines cameras, lights, renderers, windows, interactors
+3. **Query elements** - Sources, readers, writers, filters as individual chunks
+
+### Code Chunk Metadata
+
+| Field | Description |
+|-------|-------------|
+| `chunk_id` | Unique identifier |
+| `example_id` | Source example URL |
+| `type` | Chunk type |
+| `function_name` | Containing function |
+| `title` | Human-readable title |
+| `description` | Detailed description |
+| `synopsis` | Natural language summary |
+| `content` | Executable Python code with imports |
+| `roles` | Functional roles (source_geometric, mapper_polydata, etc.) |
+| `visibility_score` | User-facing likelihood (0.0-1.0) |
+| `input_datatype` / `output_datatype` | Data types |
+| `vtk_class` | Primary VTK class |
+| `queries` | Pre-generated search queries |
+
+## Doc Chunks
+
+### Chunk Types
+
+| Type | Description |
+|------|-------------|
+| **class_overview** | Class description and synopsis |
+| **constructor** | How to instantiate the class |
+| **property_group** | Related Set/Get/On/Off methods grouped by property |
+| **standalone_methods** | Methods not part of property groups |
+| **inheritance** | Parent class hierarchy |
+
+### Property Grouping
+
+VTK methods are grouped by property name:
+- `SetRadius`, `GetRadius`, `GetRadiusMinValue`, `GetRadiusMaxValue` → one chunk
+- `ScalarVisibilityOn`, `ScalarVisibilityOff`, `SetScalarVisibility`, `GetScalarVisibility` → one chunk
+
+### Doc Chunk Metadata
+
+| Field | Description |
+|-------|-------------|
+| `chunk_id` | Unique identifier |
+| `chunk_type` | Type (class_overview, constructor, property_group, etc.) |
+| `class_name` | VTK class name |
+| `content` | Full documentation text |
+| `synopsis` | Brief summary |
+| `role` | Functional role |
+| `action_phrase` | Concise action description |
+| `visibility` | User-facing likelihood |
+| `queries` | Pre-generated search queries |
+
+## Query Generation
+
+Queries are pre-generated for each chunk to improve search recall:
+
+**Code chunks:** Pattern templates, configuration categories, synopsis values  
+**Doc chunks:** Action phrases, camelCase→words conversion, class names
+
+---
+
+# Indexing Module
+
+Index VTK chunks into Qdrant for hybrid search.
+
+## Search Architecture
+
+Each collection supports three search modes:
+
+### Dense Vectors (Semantic)
+- **Model**: SentenceTransformer (`all-MiniLM-L6-v2`, 384-dim)
+- **content**: Single embedding of chunk text
+- **queries**: Multi-vector of pre-generated query embeddings
+
+### Sparse Vectors (BM25)
+- **Model**: FastEmbed (`Qdrant/bm25`)
+- **bm25**: Sparse embedding with IDF weighting
+- Good for exact VTK class names like `vtkSphereSource`
+
+### Payload Indexes (Filtering)
+- **keyword**: Exact match (fast)
+- **text**: Tokenized full-text
+- **float**: Range queries
+
+### Hybrid Search
+Combine dense + sparse with Reciprocal Rank Fusion (RRF).
+
+## Collection Fields
+
+### vtk_code
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | Dense | Semantic similarity |
+| `bm25` | Sparse | BM25 keyword matching |
+| `queries` | Multi | Pre-generated queries |
+| `type` | Keyword | Visualization Pipeline, Rendering Infrastructure, vtkmodules.* |
+| `vtk_class` | Keyword | Primary VTK class |
+| `function_name` | Keyword | Containing function |
+| `roles` | Keyword | Functional roles |
+| `input_datatype` | Keyword | Input data type |
+| `output_datatype` | Keyword | Output data type |
+| `visibility_score` | Float | User-facing likelihood (0.0-1.0) |
+
+### vtk_docs
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | Dense | Semantic similarity |
+| `bm25` | Sparse | BM25 keyword matching |
+| `queries` | Multi | Pre-generated queries |
+| `chunk_type` | Keyword | class_overview, constructor, property_group, etc. |
+| `class_name` | Keyword | VTK class name |
+| `role` | Keyword | Functional role |
+| `visibility` | Keyword | User-facing likelihood |
+| `metadata.module` | Keyword | VTK module path |
+
+---
+
+# Retrieval Module
+
+Core retrieval primitives for searching VTK code and documentation.
+
+## Search Modes
+
+### Semantic Search
+Dense vector similarity using SentenceTransformer embeddings.
+Best for natural language queries.
+
+```python
+results = retriever.search("how do I visualize medical imaging data")
+```
+
+### BM25 Search
+Sparse vector keyword matching using FastEmbed BM25.
+Best for exact VTK class/method names.
+
+```python
+results = retriever.bm25_search("vtkDICOMImageReader")
+```
+
+### Hybrid Search
+Combines dense + sparse with Reciprocal Rank Fusion (RRF).
+Best for mixed queries with both natural language and VTK terms.
+
+```python
+results = retriever.hybrid_search("create sphere using vtkSphereSource")
+```
+
+### Multi-Vector Search
+Search against pre-generated query embeddings for better recall.
+
+```python
+results = retriever.search("sphere", vector_name="queries")
+```
+
+## Filtering
+
+Filters narrow search results by metadata fields. No Qdrant imports required.
+
+### Dict Syntax (Simple)
+
+For basic filters with AND logic only:
+
+```python
+# Exact match
+results = retriever.search("sphere", filters={"role": "source_geometric"})
+
+# Match any
+results = retriever.search("sphere", filters={
+    "class_name": ["vtkSphereSource", "vtkConeSource"]
+})
+
+# Range
+results = retriever.search("sphere", filters={
+    "visibility_score": {"gte": 0.7}
+})
+
+# Combined (all must match)
+results = retriever.search("sphere", filters={
+    "type": "Visualization Pipeline",
+    "visibility_score": {"gte": 0.5},
+})
+```
+
+### FilterBuilder (Full Control)
+
+For exclusions, optional matches, or complex logic:
+
+```python
+from vtk_rag.retrieval import FilterBuilder
+
+filters = (
+    FilterBuilder()
+    .match("role", "source_geometric")           # must match exactly
+    .match_any("vtk_class", ["vtkSphereSource", "vtkConeSource"])  # must match one
+    .range("visibility_score", gte=0.7)          # must be >= 0.7
+    .exclude("chunk_type", "inheritance")        # must NOT match
+    .should_match("type", "Visualization Pipeline")  # bonus if matches
+    .build()
+)
+
+results = retriever.search("sphere", filters=filters)
+```
+
+### Available Filter Fields
+
+**Code collection (vtk_code):**
+- `type`, `vtk_class`, `function_name`, `roles`
+- `input_datatype`, `output_datatype`, `visibility_score`
+- `example_id`, `variable_name`
+
+**Doc collection (vtk_docs):**
+- `chunk_type`, `class_name`, `role`, `visibility`
+- `metadata.module`, `metadata.input_datatype`, `metadata.output_datatype`
+
+## SearchResult
+
+```python
+result = results[0]
+
+# Core fields
+result.id          # Qdrant point ID
+result.score       # Relevance score
+result.content     # Chunk text
+result.chunk_id    # Original chunk identifier
+result.collection  # vtk_code or vtk_docs
+result.payload     # Full metadata dict
+
+# Common properties
+result.class_name       # VTK class name
+result.chunk_type       # Chunk type
+result.synopsis         # Brief summary
+result.role             # Primary functional role
+result.input_datatype   # Input data type
+result.output_datatype  # Output data type
+result.module           # VTK module path
+
+# Code chunk properties
+result.title            # Human-readable title
+result.description      # Detailed description
+result.example_id       # Source example URL
+result.function_name    # Containing function
+result.variable_name    # Primary variable
+result.roles            # All functional roles (list)
+result.visibility_score # User-facing likelihood (0.0-1.0)
+
+# Doc chunk properties
+result.action_phrase    # Concise action description
+```
+
+---
+
+# Code Map
+
+```
+vtk_rag/
+├── __init__.py
+├── __main__.py          # python -m vtk_rag
+├── cli.py               # Unified CLI
+├── build.py             # Build pipeline
+│
+├── chunking/
+│   ├── __init__.py      # Exports: Chunker, CodeChunker, DocChunker, etc.
+│   ├── chunk.py         # CLI entry point
+│   ├── chunker.py       # Chunker class
+│   ├── code_chunker.py  # Code chunk extraction
+│   ├── code_chunk.py    # CodeChunk dataclass
+│   ├── doc_chunker.py   # Doc chunk extraction
+│   ├── doc_chunk.py     # DocChunk dataclass
+│   ├── code_query_generator.py
+│   ├── doc_query_generator.py
+│   ├── lifecycle_analyzer.py
+│   ├── semantic_chunk_builder.py
+│   ├── vtk_categories.py
+│   ├── vtk_class_resolver.py
+│   └── persistent_mcp_client.py
+│
+├── indexing/
+│   ├── __init__.py      # Exports: Indexer, CollectionConfig, FieldConfig
+│   ├── index.py         # CLI entry point
+│   ├── indexer.py       # Indexer class
+│   └── collection_config.py
+│
+└── retrieval/
+    ├── __init__.py      # Exports: Retriever, SearchResult, FilterBuilder
+    ├── retriever.py     # Retriever class
+    ├── filter_builder.py
+    └── search_result.py
+
+tests/
+├── conftest.py          # Fixtures
+├── test_chunking.py
+├── test_indexing.py
+├── test_retrieval.py
+└── test_cli.py
+```
+
+---
+
+# Prerequisites
+
+- **Python 3.10+**
+- **Qdrant**: `docker run -d -p 6333:6333 -p 6334:6334 qdrant/qdrant`
+- **Raw data files** in `data/raw/`:
+  - `vtk-python-docs.jsonl` (~2,900 classes)
+  - `vtk-python-examples.jsonl` (~850 examples)
+  - `vtk-python-tests.jsonl` (~900 tests)
+
+---
+
+# License
+
+MIT License

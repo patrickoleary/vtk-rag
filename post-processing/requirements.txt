@@ -1,4 +1,0 @@
-# Post-Processing Dependencies
-
-# No additional dependencies required!
-# Uses Python standard library only (re, dataclasses, enum)

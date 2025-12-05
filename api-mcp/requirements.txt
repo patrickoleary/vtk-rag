@@ -1,6 +1,0 @@
-# VTK API MCP Server Dependencies
-
-# MCP SDK (latest version)
-mcp>=1.17.0
-
-# No other dependencies - uses standard library only!

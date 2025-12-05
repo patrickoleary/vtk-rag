@@ -1,46 +1,19 @@
-# VTK RAG Project - Ignore Generated Files
-# See clean.py for what gets cleaned
-
-# Environment (API keys - NEVER COMMIT)
-.env
-
 # Virtual environment
 .venv/
 
-# Python runtime files
+# Python
 __pycache__/
-*.pyc
-*.pyo
 
-# Generated corpus data (~131K chunks from build.py)
+# Generated data
 data/processed/
-data/visualizations/
 
-# Evaluation outputs (from evaluator.py)
-evaluation/results/
+# Build artifacts
+dist/
+*.egg-info/
 
-# Visual testing artifacts (from visual_evaluator.py)
-tests/visual_testing/baselines/
+# Testing
+.coverage
+.pytest_cache/
 
-# Vector databases (Qdrant index from build.py)
-.qdrant/
-qdrant_storage/
-chroma_db/
-indexes/
-
-# Logs
-*.log
-
-# IDE files (optional - remove if you want to commit IDE settings)
-.vscode/
-.idea/
-*.swp
-*~
-
-# OS files
+# OS
 .DS_Store
-Thumbs.db
-
-# Temporary files
-*.tmp
-temp/

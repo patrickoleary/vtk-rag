@@ -3,25 +3,23 @@
 # Creates virtual environment and installs dependencies
 #
 # Usage:
-#   ./setup.sh          # Interactive mode (asks for each component)
-#   ./setup.sh --all    # Install everything without prompts
+#   ./setup.sh          # Install production dependencies
+#   ./setup.sh --dev    # Install production + development dependencies
 
 set -e  # Exit on error
-
-# Check for --all flag
-INSTALL_ALL=false
-if [[ "$1" == "--all" ]]; then
-    INSTALL_ALL=true
-fi
 
 echo "========================================="
 echo "VTK RAG Setup"
 echo "========================================="
 echo ""
-if [ "$INSTALL_ALL" = true ]; then
-    echo "Mode: Install ALL dependencies"
+
+# Check for --dev flag
+INSTALL_DEV=false
+if [[ "$1" == "--dev" ]]; then
+    INSTALL_DEV=true
+    echo "Mode: Development (includes pytest, ruff)"
 else
-    echo "Mode: Interactive (selective installation)"
+    echo "Mode: Production"
 fi
 echo ""
 
@@ -30,140 +28,38 @@ echo "Checking Python version..."
 python3 --version
 
 if ! command -v python3 &> /dev/null; then
-    echo "Error: Python 3 is required but not installed."
+    echo "Error: Python 3.10+ is required but not installed."
     exit 1
 fi
 
-# Check if virtual environment already exists
+# Create virtual environment if it doesn't exist
 if [ -d ".venv" ]; then
-    echo "Virtual environment already exists. Use it or delete it first."
-    echo "To use existing: source .venv/bin/activate"
-    echo "To delete: rm -rf .venv"
-    exit 1
+    echo "Virtual environment already exists."
+    echo "Activating existing environment..."
+else
+    echo "Creating virtual environment..."
+    python3 -m venv .venv
 fi
-
-# Create virtual environment
-echo ""
-echo "Creating virtual environment..."
-python3 -m venv .venv
 
 # Activate virtual environment
-echo ""
-echo "Activating virtual environment..."
 source .venv/bin/activate
 echo "✓ Virtual environment activated"
 
 # Upgrade pip
 echo ""
 echo "Upgrading pip..."
-pip install --upgrade pip
+pip install --upgrade pip -q
 
-# Install basic requirements (Python standard library only for core functionality)
+# Install package
 echo ""
-echo "Checking requirements..."
-echo "✓ Corpus preparation uses only Python standard library - no dependencies needed!"
-
-# Optional: Install corpus preparation dependencies (visualizations)
-echo ""
-if [ "$INSTALL_ALL" = true ]; then
-    REPLY="y"
+if [ "$INSTALL_DEV" = true ]; then
+    echo "Installing vtk-rag with dev dependencies..."
+    pip install -e ".[dev]"
+    echo "✓ Production + dev dependencies installed"
 else
-    read -p "Install dependencies for visualizations? (y/n) " -n 1 -r
-    echo ""
-fi
-if [[ $REPLY =~ ^[Yy]$ ]] || [ "$INSTALL_ALL" = true ]; then
-    echo "Installing visualization dependencies..."
-    pip install -r prepare-corpus/requirements.txt
-    echo "✓ Visualization dependencies installed"
-else
-    echo "Skipping visualization dependencies. Analysis will work with text output only."
-fi
-
-# Optional: Install indexing dependencies
-echo ""
-if [ "$INSTALL_ALL" = true ]; then
-    REPLY="y"
-else
-    read -p "Install dependencies for building hybrid index (Qdrant)? (y/n) " -n 1 -r
-    echo ""
-fi
-if [[ $REPLY =~ ^[Yy]$ ]] || [ "$INSTALL_ALL" = true ]; then
-    echo "Installing indexing dependencies..."
-    pip install -r build-indexes/requirements.txt
-    echo "✓ Indexing dependencies installed"
-    echo "Note: You'll need to start Qdrant with: docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant"
-else
-    echo "Skipping indexing dependencies. Install later with: pip install -r build-indexes/requirements.txt"
-fi
-
-# Optional: Install RAG pipeline dependencies
-echo ""
-if [ "$INSTALL_ALL" = true ]; then
-    REPLY="y"
-else
-    read -p "Install dependencies for complete RAG pipeline (retrieval, grounding, LLM, post-processing)? (y/n) " -n 1 -r
-    echo ""
-fi
-if [[ $REPLY =~ ^[Yy]$ ]] || [ "$INSTALL_ALL" = true ]; then
-    echo "Installing RAG pipeline dependencies..."
-    pip install -r retrieval-pipeline/requirements.txt
-    pip install -r grounding-prompting/requirements.txt
-    pip install -r llm-generation/requirements.txt
-    pip install -r post-processing/requirements.txt
-    echo "✓ RAG pipeline dependencies installed"
-    echo "Note: Configure LLM provider in .env file (copy from .env.example)"
-else
-    echo "Skipping RAG pipeline dependencies."
-    echo "Install later with: pip install -r {retrieval-pipeline,grounding-prompting,llm-generation,post-processing}/requirements.txt"
-fi
-
-# Optional: Install API validation dependencies
-echo ""
-if [ "$INSTALL_ALL" = true ]; then
-    REPLY="y"
-else
-    read -p "Install dependencies for API validation (hallucination detection via MCP)? (y/n) " -n 1 -r
-    echo ""
-fi
-if [[ $REPLY =~ ^[Yy]$ ]] || [ "$INSTALL_ALL" = true ]; then
-    echo "Installing API validation dependencies..."
-    pip install -r api-mcp/requirements.txt
-    echo "✓ API validation dependencies installed"
-else
-    echo "Skipping API validation. Install later with: pip install -r api-mcp/requirements.txt"
-fi
-
-# Optional: Install evaluation dependencies
-echo ""
-if [ "$INSTALL_ALL" = true ]; then
-    REPLY="y"
-else
-    read -p "Install dependencies for evaluation (requires VTK)? (y/n) " -n 1 -r
-    echo ""
-fi
-if [[ $REPLY =~ ^[Yy]$ ]] || [ "$INSTALL_ALL" = true ]; then
-    echo "Installing evaluation dependencies..."
-    pip install -r evaluation/requirements.txt
-    echo "✓ Evaluation dependencies installed"
-else
-    echo "Skipping evaluation. Install later with: pip install -r evaluation/requirements.txt"
-fi
-
-# Optional: Install visual testing dependencies
-echo ""
-if [ "$INSTALL_ALL" = true ]; then
-    REPLY="y"
-else
-    read -p "Install dependencies for visual testing (VTK + image processing)? (y/n) " -n 1 -r
-    echo ""
-fi
-if [[ $REPLY =~ ^[Yy]$ ]] || [ "$INSTALL_ALL" = true ]; then
-    echo "Installing visual testing dependencies..."
-    pip install -r visual_testing/requirements.txt
-    echo "✓ Visual testing dependencies installed"
-    echo "Note: Docker is required for sandboxed execution. Use query.py --visual-test"
-else
-    echo "Skipping visual testing. Install later with: pip install -r visual_testing/requirements.txt"
+    echo "Installing vtk-rag..."
+    pip install -e .
+    echo "✓ Production dependencies installed"
 fi
 
 echo ""
@@ -171,24 +67,20 @@ echo "========================================="
 echo "Setup Complete!"
 echo "========================================="
 echo ""
-echo "To activate the virtual environment in the future, run:"
+echo "To activate the virtual environment:"
 echo "  source .venv/bin/activate"
 echo ""
-echo "To deactivate when done:"
-echo "  deactivate"
-echo ""
 echo "Next steps:"
-echo "  1. Configure LLM: cp .env.example .env (then edit with your API key)"
-echo "  2. Place raw data in data/raw/ (see data/raw/README.md)"
-echo "  3. Start Qdrant: docker run -d -p 6333:6333 qdrant/qdrant"
-echo "  4. Build index: python build.py"
-echo "  5. Query system: python query.py 'How do I create a cylinder?'"
+echo "  1. Place raw data in data/raw/"
+echo "  2. Start Qdrant: docker run -d -p 6333:6333 -p 6334:6334 qdrant/qdrant"
+echo "  3. Build: vtk-rag build"
+echo "  4. Search: vtk-rag search 'create a sphere'"
 echo ""
-echo "Quick install all dependencies (non-interactive):"
-echo "  ./setup.sh --all"
-echo ""
-echo "Or install specific components later:"
-echo "  pip install -r <component>/requirements.txt"
-echo ""
+if [ "$INSTALL_DEV" = true ]; then
+    echo "Development commands:"
+    echo "  pytest tests/              # Run tests"
+    echo "  ruff check vtk_rag/ tests/ # Lint code"
+    echo ""
+fi
 echo "See README.md for full documentation."
 echo ""
