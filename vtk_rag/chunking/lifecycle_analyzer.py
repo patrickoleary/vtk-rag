@@ -15,7 +15,7 @@ from .vtk_categories import (
     PROPERTY_SETTERS,
     SELF_CONTAINED_ACTORS,
 )
-from .vtk_class_resolver import VTK_CLASS_RESOLVER
+from vtk_rag.mcp import VTK_API_CLIENT
 
 
 class MethodCall(TypedDict):
@@ -122,14 +122,14 @@ class LifecycleAnalyzer:
                             if node.value.func.value.id == "vtk":
                                 vtk_class = node.value.func.attr
                                 # Verify it's a real VTK class via MCP
-                                resolved = VTK_CLASS_RESOLVER.resolve({vtk_class})
+                                resolved = VTK_API_CLIENT.resolve({vtk_class})
                                 if vtk_class in resolved:
                                     self._track_assignment_targets(node, vtk_class)
                             # Track static method calls in assignments: result = vtkMath.Distance2BetweenPoints()
                             elif node.value.func.value.id.startswith("vtk"):
                                 vtk_class = node.value.func.value.id
                                 # Verify it's a real VTK class via MCP
-                                resolved = VTK_CLASS_RESOLVER.resolve({vtk_class})
+                                resolved = VTK_API_CLIENT.resolve({vtk_class})
                                 if vtk_class in resolved:
                                     static_method_calls[vtk_class].append(node)
                     # Direct call: var = vtkClass() or self.var = vtkClass()
@@ -138,7 +138,7 @@ class LifecycleAnalyzer:
                         # Only track if it's a VTK class, not a helper function
                         if func_name.startswith("vtk") and func_name not in self.helper_methods:
                             # Verify it's a real VTK class via MCP
-                            resolved = VTK_CLASS_RESOLVER.resolve({func_name})
+                            resolved = VTK_API_CLIENT.resolve({func_name})
                             if func_name in resolved:
                                 vtk_class = func_name
                                 # Track assignment and check for mapper= keyword argument
@@ -149,7 +149,7 @@ class LifecycleAnalyzer:
                             return_type = self.helper_return_types.get(func_name)
                             if return_type and return_type.startswith("vtk"):
                                 # Verify it's a real VTK class via MCP
-                                resolved = VTK_CLASS_RESOLVER.resolve({return_type})
+                                resolved = VTK_API_CLIENT.resolve({return_type})
                                 if return_type in resolved:
                                     self._track_assignment_targets(node, return_type)
 
@@ -261,7 +261,7 @@ class LifecycleAnalyzer:
 
                     # Track static method calls: vtkMath.Distance2BetweenPoints()
                     elif var_name.startswith("vtk"):
-                        resolved = VTK_CLASS_RESOLVER.resolve({var_name})
+                        resolved = VTK_API_CLIENT.resolve({var_name})
                         if var_name in resolved:
                             static_method_calls[var_name].append(node)
 
@@ -677,7 +677,7 @@ class LifecycleAnalyzer:
             return "Actors"
 
         # Everything else - use MCP to get module name
-        resolved = VTK_CLASS_RESOLVER.resolve({vtk_class})
+        resolved = VTK_API_CLIENT.resolve({vtk_class})
         if vtk_class in resolved:
             # Return the full module path like "vtkmodules.vtkRenderingCore"
             return resolved[vtk_class]

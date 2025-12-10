@@ -69,20 +69,24 @@ class Retriever:
 
     def __init__(
         self,
-        qdrant_url: str = "http://localhost:6333",
-        dense_model: str = "all-MiniLM-L6-v2",
-        sparse_model: str = "Qdrant/bm25",
+        qdrant_url: str | None = None,
+        dense_model: str | None = None,
+        sparse_model: str | None = None,
     ) -> None:
         """Initialize the retriever.
 
         Args:
-            qdrant_url: Qdrant server URL.
+            qdrant_url: Qdrant server URL. Defaults to config or localhost:6333.
             dense_model: SentenceTransformer model for dense embeddings.
             sparse_model: FastEmbed model for sparse (BM25) embeddings.
         """
-        self.client = QdrantClient(url=qdrant_url)
-        self.dense_model = SentenceTransformer(dense_model)
-        self.sparse_model = SparseTextEmbedding(sparse_model)
+        # Load config for defaults
+        from vtk_rag.config import get_config
+        config = get_config()
+        
+        self.client = QdrantClient(url=qdrant_url or config.qdrant.url)
+        self.dense_model = SentenceTransformer(dense_model or config.embedding.dense_model)
+        self.sparse_model = SparseTextEmbedding(sparse_model or config.embedding.sparse_model)
 
     def search(
         self,

@@ -13,7 +13,7 @@ from .vtk_categories import (
     OUTPUT_DATATYPE_METHODS,
     SELF_CONTAINED_ACTORS,
 )
-from .vtk_class_resolver import VTK_CLASS_RESOLVER
+from vtk_rag.mcp import VTK_API_CLIENT
 
 # Visibility weights for computing chunk visibility score
 VISIBILITY_WEIGHTS = {
@@ -298,7 +298,7 @@ class SemanticChunkBuilder:
         for method_name in OUTPUT_DATATYPE_METHODS:
             if output_datatype:  # Already found
                 break
-            method_info = VTK_CLASS_RESOLVER.get_method_info(vtk_class, method_name)
+            method_info = VTK_API_CLIENT.get_method_info(vtk_class, method_name)
             if method_info:
                 # Format: "GetOutput(self) -> vtkPolyData"
                 content_str = method_info.get("content", "")
@@ -310,7 +310,7 @@ class SemanticChunkBuilder:
         for method_name in INPUT_DATATYPE_METHODS:
             if input_datatype:  # Already found
                 break
-            method_info = VTK_CLASS_RESOLVER.get_method_info(vtk_class, method_name)
+            method_info = VTK_API_CLIENT.get_method_info(vtk_class, method_name)
             if method_info:
                 content_str = method_info.get("content", "")
 
@@ -355,12 +355,12 @@ class SemanticChunkBuilder:
                 continue
 
             # Get role
-            role = VTK_CLASS_RESOLVER.get_class_role(vtk_class)
+            role = VTK_API_CLIENT.get_class_role(vtk_class)
             if role and role not in roles:
                 roles.append(role)
 
             # Get visibility
-            visibility_str = VTK_CLASS_RESOLVER.get_class_visibility(vtk_class)
+            visibility_str = VTK_API_CLIENT.get_class_visibility(vtk_class)
             if visibility_str:
                 weight = VISIBILITY_WEIGHTS.get(visibility_str, 0.5)
                 visibility_values.append(weight)
@@ -369,7 +369,7 @@ class SemanticChunkBuilder:
 
             # Get action phrase for concise synopsis building
             # e.g., "polygonal sphere creation" instead of full synopsis
-            action_phrase = VTK_CLASS_RESOLVER.get_class_action_phrase(vtk_class)
+            action_phrase = VTK_API_CLIENT.get_class_action_phrase(vtk_class)
             if action_phrase:
                 # Capitalize first letter for sentence start
                 action_phrase = action_phrase[0].upper() + action_phrase[1:]
@@ -533,8 +533,8 @@ class SemanticChunkBuilder:
         # Group imports by module.
         module_to_classes: dict[str, list[str]] = defaultdict(list)
 
-        # Use VTK_CLASS_RESOLVER (MCP) to get authoritative module information
-        resolved = VTK_CLASS_RESOLVER.resolve(set(vtk_classes))
+        # Use VTK_API_CLIENT (MCP) to get authoritative module information
+        resolved = VTK_API_CLIENT.resolve(set(vtk_classes))
 
         for vtk_class in vtk_classes:
             if vtk_class in resolved:

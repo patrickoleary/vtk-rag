@@ -7,30 +7,67 @@ Transform natural language queries into relevant VTK code examples and class/met
 ## Quick Start
 
 ```bash
-# Install
-pip install -e .
+# Setup (installs uv if needed, creates .venv, installs dependencies)
+./setup.sh --dev
 
 # Start Qdrant
 docker run -d -p 6333:6333 -p 6334:6334 qdrant/qdrant
 
 # Build (chunk + index)
-vtk-rag build
+uv run vtk-rag build
 
 # Search
-vtk-rag search "create a sphere"
+uv run vtk-rag search "create a sphere"
+```
+
+## Installation
+
+This project uses [uv](https://docs.astral.sh/uv/) for fast, reproducible dependency management.
+
+### Option 1: Using setup.sh (Recommended)
+
+```bash
+./setup.sh          # Production dependencies
+./setup.sh --dev    # Production + development (pytest, ruff)
+```
+
+### Option 2: Manual with uv
+
+```bash
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Create virtual environment and install
+uv venv .venv
+uv pip install -e ".[dev]"
+
+# Copy environment config
+cp .env.example .env
+```
+
+### Option 3: Traditional pip
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
 ## CLI
 
 ```bash
-vtk-rag chunk              # Process raw data into chunks
-vtk-rag index              # Build Qdrant indexes
-vtk-rag build              # Full pipeline (chunk + index)
-vtk-rag clean              # Remove processed data and indexes
-vtk-rag search "query"     # Search code and docs
+uv run vtk-rag chunk              # Process raw data into chunks
+uv run vtk-rag index              # Build Qdrant indexes
+uv run vtk-rag build              # Full pipeline (chunk + index)
+uv run vtk-rag clean              # Remove processed data and indexes
+uv run vtk-rag search "query"     # Search code and docs
 ```
 
-Or use module invocation: `python -m vtk_rag <command>`
+Or activate the venv and run directly:
+```bash
+source .venv/bin/activate
+vtk-rag build
+```
 
 ### Search Options
 
@@ -81,8 +118,9 @@ for r in results:
 ## Testing
 
 ```bash
-python -m pytest tests/           # Run tests with coverage
-python -m pytest tests/ --no-cov  # Without coverage
+uv run pytest tests/              # Run tests
+uv run pytest tests/ -v           # Verbose output
+uv run ruff check vtk_rag/ tests/ # Lint code
 ```
 
 ---
@@ -415,8 +453,11 @@ vtk_rag/
 │   ├── doc_query_generator.py
 │   ├── lifecycle_analyzer.py
 │   ├── semantic_chunk_builder.py
-│   ├── vtk_categories.py
-│   ├── vtk_class_resolver.py
+│   └── vtk_categories.py
+│
+├── mcp/
+│   ├── __init__.py          # Exports: VTKAPIClient, VTK_API_CLIENT, PersistentMCPClient
+│   ├── vtk_api_client.py    # VTK class resolution via MCP
 │   └── persistent_mcp_client.py
 │
 ├── indexing/

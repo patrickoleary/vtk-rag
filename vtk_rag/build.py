@@ -98,13 +98,24 @@ def check_prerequisites(skip_qdrant: bool = False) -> bool:
         print_step("Checking Qdrant...")
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            result = sock.connect_ex(('localhost', 6333))
+            from vtk_rag.config import get_config
+            config = get_config()
+            # Parse host/port from URL
+            qdrant_url = config.qdrant.url
+            if "://" in qdrant_url:
+                host_port = qdrant_url.split("://")[1]
+            else:
+                host_port = qdrant_url
+            host = host_port.split(":")[0]
+            port = int(host_port.split(":")[1]) if ":" in host_port else 6333
+            
+            result = sock.connect_ex((host, port))
             sock.close()
             if result == 0:
-                print("  ✓ Qdrant running on localhost:6333")
+                print(f"  ✓ Qdrant running on {qdrant_url}")
             else:
                 issues.append("Qdrant not running")
-                print_warning("Qdrant not running on localhost:6333")
+                print_warning(f"Qdrant not running on {qdrant_url}")
                 print("    Start with: docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant")
         except Exception as e:
             issues.append(f"Could not check Qdrant: {e}")
@@ -179,9 +190,11 @@ def run_clean() -> None:
     print_step("Removing Qdrant collections...")
     try:
         from qdrant_client import QdrantClient
-        client = QdrantClient(url="http://localhost:6333")
+        from vtk_rag.config import get_config
+        config = get_config()
+        client = QdrantClient(url=config.qdrant.url)
 
-        for collection in ["vtk_code", "vtk_docs"]:
+        for collection in [config.qdrant.code_collection, config.qdrant.docs_collection]:
             try:
                 client.delete_collection(collection)
                 print(f"  Deleted: {collection}")
@@ -269,8 +282,13 @@ Examples:
 
         if 'chunks' in results:
             print("Chunks created:")
-            for name, count in results['chunks'].items():
-                print(f"  • {name}: {count:,}")
+            chunk_results = results['chunks']
+            if 'total_chunks' in chunk_results:
+                print(f"  • Total: {chunk_results['total_chunks']:,}")
+            if 'code' in chunk_results:
+                print(f"  • Code: {chunk_results['code'].get('chunks', 0):,}")
+            if 'docs' in chunk_results:
+                print(f"  • Docs: {chunk_results['docs'].get('chunks', 0):,}")
 
         if 'indexes' in results:
             print("Indexes built:")
@@ -280,7 +298,9 @@ Examples:
         print()
         print("Next steps:")
         print("  • Search: from vtk_rag.retrieval import Retriever")
-        print("  • Qdrant UI: http://localhost:6333/dashboard")
+        from vtk_rag.config import get_config
+        config = get_config()
+        print(f"  • Qdrant UI: {config.qdrant.url}/dashboard")
         print()
 
     except KeyboardInterrupt:

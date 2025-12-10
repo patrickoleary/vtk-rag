@@ -7,7 +7,7 @@ from typing import Any
 
 from .lifecycle_analyzer import LifecycleAnalyzer
 from .semantic_chunk_builder import SemanticChunkBuilder
-from .vtk_class_resolver import VTK_CLASS_RESOLVER
+from vtk_rag.mcp import VTK_API_CLIENT
 
 
 class CodeChunker:
@@ -79,7 +79,7 @@ class CodeChunker:
                 func_name = return_value.func.id
                 if func_name.startswith("vtk"):
                     # Verify it's a real VTK class via MCP
-                    resolved = VTK_CLASS_RESOLVER.resolve({func_name})
+                    resolved = VTK_API_CLIENT.resolve({func_name})
                     if func_name in resolved:
                         return func_name
         return None
@@ -268,7 +268,7 @@ class CodeChunker:
                             vtk_class = node.value.func.id
                             if vtk_class.startswith("vtk"):
                                 # Verify it's a real VTK class
-                                resolved = VTK_CLASS_RESOLVER.resolve({vtk_class})
+                                resolved = VTK_API_CLIENT.resolve({vtk_class})
                                 if vtk_class in resolved:
                                     for target in node.targets:
                                         if isinstance(target, ast.Attribute):

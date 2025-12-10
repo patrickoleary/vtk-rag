@@ -1,6 +1,9 @@
 # Virtual environment
 .venv/
 
+# Environment config (secrets)
+.env
+
 # Python
 __pycache__/
 
