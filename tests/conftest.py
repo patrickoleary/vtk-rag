@@ -18,13 +18,13 @@ def data_dir(base_path: Path) -> Path:
 
 
 @pytest.fixture
-def raw_data_dir(data_dir: Path) -> Path:
+def raw_dir(data_dir: Path) -> Path:
     """Return the raw data directory path."""
     return data_dir / "raw"
 
 
 @pytest.fixture
-def processed_data_dir(data_dir: Path) -> Path:
+def chunk_dir(data_dir: Path) -> Path:
     """Return the processed data directory path."""
     return data_dir / "processed"
 
@@ -35,22 +35,18 @@ def sample_code_chunk() -> dict:
     return {
         "chunk_id": "test-chunk-001",
         "example_id": "https://examples.vtk.org/site/Python/GeometricObjects/Sphere",
-        "type": "vtkmodules.vtkFiltersSources",
-        "function_name": "main",
-        "title": "Create a sphere source",
-        "description": "Creates a vtkSphereSource with specified parameters",
         "synopsis": "Sphere source with radius set to 1.0, center set to (0, 0, 0)",
         "content": "sphere = vtkSphereSource()\nsphere.SetRadius(1.0)\nsphere.SetCenter(0, 0, 0)",
-        "roles": ["source_geometric"],
+        "role": "input",
         "visibility_score": 0.9,
         "vtk_class": "vtkSphereSource",
         "variable_name": "sphere",
         "input_datatype": "",
         "output_datatype": "vtkPolyData",
+        "action_phrase": "create a sphere source",
         "queries": ["How to create a sphere in VTK?", "vtkSphereSource example"],
         "metadata": {
-            "module": "vtkmodules.vtkFiltersSources",
-            "vtk_classes": ["vtkSphereSource"],
+            "vtk_classes": [{"class": "vtkSphereSource", "variable": "sphere"}],
         },
     }
 
@@ -61,16 +57,14 @@ def sample_doc_chunk() -> dict:
     return {
         "chunk_id": "doc-vtkSphereSource-overview",
         "chunk_type": "class_overview",
-        "class_name": "vtkSphereSource",
+        "vtk_class": "vtkSphereSource",
         "content": "vtkSphereSource creates a sphere centered at origin.",
         "synopsis": "Create a sphere (default representation).",
-        "roles": ["source_geometric"],  # Doc chunks use roles list like code chunks
+        "role": "input",
         "action_phrase": "create a sphere",
-        "visibility": "very_likely",
+        "visibility_score": 0.9,
+        "module": "vtkmodules.vtkFiltersSources",
+        "input_datatype": "",
+        "output_datatype": "vtkPolyData",
         "queries": ["What is vtkSphereSource?", "How to create a sphere?"],
-        "metadata": {
-            "module": "vtkmodules.vtkFiltersSources",
-            "input_datatype": "",
-            "output_datatype": "vtkPolyData",
-        },
     }

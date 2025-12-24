@@ -23,6 +23,14 @@ import sys
 import time
 from pathlib import Path
 
+from qdrant_client import QdrantClient
+
+from .chunking import Chunker
+from .config import get_config
+from .indexing import Indexer
+from .mcp import get_vtk_client
+from .rag import RAGClient
+
 
 class Colors:
     """ANSI color codes for terminal output."""
@@ -78,10 +86,12 @@ def check_prerequisites(skip_qdrant: bool = False) -> bool:
 
     # Check raw data files
     print_step("Checking raw data files...")
+    rag = get_config().rag_client
+    raw_dir = rag.raw_dir
     raw_files = [
-        'data/raw/vtk-python-docs.jsonl',
-        'data/raw/vtk-python-examples.jsonl',
-        'data/raw/vtk-python-tests.jsonl'
+        f'{raw_dir}/{rag.docs_file}',
+        f'{raw_dir}/{rag.examples_file}',
+        f'{raw_dir}/{rag.tests_file}'
     ]
 
     for file in raw_files:
@@ -98,17 +108,16 @@ def check_prerequisites(skip_qdrant: bool = False) -> bool:
         print_step("Checking Qdrant...")
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            from vtk_rag.config import get_config
             config = get_config()
             # Parse host/port from URL
-            qdrant_url = config.qdrant.url
+            qdrant_url = config.rag_client.qdrant_url
             if "://" in qdrant_url:
                 host_port = qdrant_url.split("://")[1]
             else:
                 host_port = qdrant_url
             host = host_port.split(":")[0]
             port = int(host_port.split(":")[1]) if ":" in host_port else 6333
-            
+
             result = sock.connect_ex((host, port))
             sock.close()
             if result == 0:
@@ -152,10 +161,11 @@ def run_chunking() -> dict[str, int]:
     """
     print_header("Stage 1: Chunking")
 
-    from .chunking import Chunker
-
-    chunker = Chunker()
-    return chunker.chunk_all()
+    config = get_config()
+    rag_client = RAGClient(config.rag_client)
+    mcp_client = get_vtk_client()
+    chunker = Chunker(rag_client, mcp_client)
+    return chunker.chunk()
 
 
 def run_indexing() -> dict[str, int]:
@@ -166,10 +176,10 @@ def run_indexing() -> dict[str, int]:
     """
     print_header("Stage 2: Indexing")
 
-    from .indexing import Indexer
-
-    indexer = Indexer()
-    return indexer.index_all()
+    config = get_config()
+    rag_client = RAGClient(config.rag_client)
+    indexer = Indexer(rag_client)
+    return indexer.index()
 
 
 def run_clean() -> None:
@@ -180,7 +190,8 @@ def run_clean() -> None:
 
     # Clean processed files
     print_step("Removing processed chunk files...")
-    processed_dir = base_path / "data/processed"
+    rag = get_config().rag_client
+    processed_dir = base_path / rag.chunk_dir
     if processed_dir.exists():
         for file in processed_dir.glob("*.jsonl"):
             file.unlink()
@@ -189,12 +200,10 @@ def run_clean() -> None:
     # Clean Qdrant collections
     print_step("Removing Qdrant collections...")
     try:
-        from qdrant_client import QdrantClient
-        from vtk_rag.config import get_config
         config = get_config()
-        client = QdrantClient(url=config.qdrant.url)
+        client = QdrantClient(url=config.rag_client.qdrant_url)
 
-        for collection in [config.qdrant.code_collection, config.qdrant.docs_collection]:
+        for collection in [config.rag_client.code_collection, config.rag_client.docs_collection]:
             try:
                 client.delete_collection(collection)
                 print(f"  Deleted: {collection}")
@@ -298,9 +307,7 @@ Examples:
         print()
         print("Next steps:")
         print("  • Search: from vtk_rag.retrieval import Retriever")
-        from vtk_rag.config import get_config
-        config = get_config()
-        print(f"  • Qdrant UI: {config.qdrant.url}/dashboard")
+        print(f"  • Qdrant UI: {get_config().rag_client.qdrant_url}/dashboard")
         print()
 
     except KeyboardInterrupt:

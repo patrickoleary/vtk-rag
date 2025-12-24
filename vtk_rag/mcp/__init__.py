@@ -1,13 +1,11 @@
 """VTK RAG MCP Module.
 
-MCP (Model Context Protocol) client utilities for VTK API access.
+VTK API client utilities using direct VTKAPIIndex access.
 """
 
-from .persistent_mcp_client import PersistentMCPClient
-from .vtk_api_client import VTK_API_CLIENT, VTKAPIClient
+from .client import VTKClient, get_vtk_client
 
 __all__ = [
-    "PersistentMCPClient",
-    "VTKAPIClient",
-    "VTK_API_CLIENT",
+    "VTKClient",
+    "get_vtk_client",
 ]

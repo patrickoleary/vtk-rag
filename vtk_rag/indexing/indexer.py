@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastembed import SparseTextEmbedding
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
@@ -20,48 +19,122 @@ from qdrant_client.models import (
     VectorParams,
     models,
 )
-from sentence_transformers import SentenceTransformer
 
-from .collection_config import CODE_COLLECTION_CONFIG, DOC_COLLECTION_CONFIG, CollectionConfig
+from vtk_rag.rag import RAGClient
+
+from .models import CODE_CONFIG, DOC_CONFIG, CollectionConfig
 
 
 class Indexer:
     """Index VTK RAG chunks into Qdrant.
 
-    Supports:
-    - Dense vector search (semantic similarity)
-    - Sparse vector search (BM25 keyword matching)
-    - Hybrid search (dense + sparse with RRF fusion)
-    - Metadata filtering (keyword, numeric)
-    - Multi-vector indexing (content + pre-generated queries)
+    Attributes:
+        rag_client: RAG client providing Qdrant and embedding access.
+        qdrant_client: Qdrant client for vector database operations.
+        base_path: Project root directory.
     """
+
+    rag_client: RAGClient
+    qdrant_client: QdrantClient
+    base_path: Path
 
     def __init__(
         self,
+        rag_client: RAGClient,
         base_path: Path | None = None,
-        qdrant_url: str | None = None,
-        dense_model: str | None = None,
-        sparse_model: str | None = None,
     ) -> None:
         """Initialize the indexer.
 
         Args:
+            rag_client: RAG client providing Qdrant and embedding access.
             base_path: Project root directory. Defaults to vtk_rag parent.
-            qdrant_url: Qdrant server URL. Defaults to config or localhost:6333.
-            dense_model: Sentence transformer model for dense embeddings.
-            sparse_model: FastEmbed model for sparse (BM25) embeddings.
         """
-        # Load config for defaults
-        from vtk_rag.config import get_config
-        config = get_config()
-        
+        self.rag_client = rag_client
+        self.qdrant_client = rag_client.qdrant_client
         self.base_path = base_path or Path(__file__).parent.parent.parent
-        self.data_dir = self.base_path / "data/processed"
 
-        self.client = QdrantClient(url=qdrant_url or config.qdrant.url)
-        self.dense_model = SentenceTransformer(dense_model or config.embedding.dense_model)
-        self.sparse_model = SparseTextEmbedding(sparse_model or config.embedding.sparse_model)
-        self.vector_size = self.dense_model.get_sentence_embedding_dimension()
+    def index(
+        self,
+        recreate: bool = True,
+        batch_size: int = 100,
+    ) -> dict[str, int]:
+        """Index both code and doc chunks.
+
+        Reads chunk files from rag_client.chunk_dir.
+
+        Args:
+            recreate: If True, delete existing collections first.
+            batch_size: Number of chunks per batch.
+
+        Returns:
+            Dict mapping collection name to chunk count.
+        """
+        print("=" * 60)
+        print("VTK RAG Indexing")
+        print("=" * 60)
+        print(f"Dense model: {self.rag_client.dense_model.get_sentence_embedding_dimension()}-dim")
+        print("Sparse model: BM25")
+
+        results = {}
+
+        code_file = self.base_path / self.rag_client.chunk_dir / self.rag_client.code_chunks
+        if code_file.exists():
+            results["vtk_code"] = self.index_collection(CODE_CONFIG, code_file, recreate, batch_size)
+        else:
+            print(f"Warning: Code chunks file not found: {code_file}")
+
+        doc_file = self.base_path / self.rag_client.chunk_dir / self.rag_client.doc_chunks
+        if doc_file.exists():
+            results["vtk_docs"] = self.index_collection(DOC_CONFIG, doc_file, recreate, batch_size)
+        else:
+            print(f"Warning: Doc chunks file not found: {doc_file}")
+
+        # Summary
+        print("\n" + "=" * 60)
+        print("Indexing Complete")
+        print("=" * 60)
+        for collection, count in results.items():
+            info = self._get_collection_info(collection)
+            print(f"  {collection}: {count:,} chunks indexed ({info['status']})")
+        print("\nQdrant dashboard: http://localhost:6333/dashboard")
+        return results
+
+    def index_collection(
+        self,
+        config: CollectionConfig,
+        chunks_file: Path,
+        recreate: bool = True,
+        batch_size: int = 100,
+    ) -> int:
+        """Index chunks from file into a collection.
+
+        Args:
+            config: Collection configuration (CODE_CONFIG or DOC_CONFIG).
+            chunks_file: Path to chunks JSONL file.
+            recreate: If True, delete existing collection first.
+            batch_size: Number of chunks per batch.
+
+        Returns:
+            Number of chunks indexed.
+        """
+        print(f"Indexing {config.name} from {chunks_file}")
+        chunks = self._load_chunks(chunks_file)
+        self.create_collection(config, recreate=recreate)
+        return self.index_chunks(config, chunks, batch_size=batch_size)
+
+    def _load_chunks(self, file_path: Path) -> list[dict[str, Any]]:
+        """Load chunks from JSONL file.
+
+        Args:
+            file_path: Path to JSONL file.
+
+        Returns:
+            List of chunk dictionaries.
+        """
+        with open(file_path, encoding="utf-8") as f:
+            chunks = [json.loads(line) for line in f if line.strip()]
+        print(f"Loaded {len(chunks)} chunks from {file_path}")
+        return chunks
 
     def create_collection(self, config: CollectionConfig, recreate: bool = True) -> None:
         """Create a Qdrant collection with configured indexes.
@@ -75,18 +148,19 @@ class Indexer:
         # Delete existing if requested
         if recreate:
             try:
-                self.client.delete_collection(collection_name)
+                self.qdrant_client.delete_collection(collection_name)
                 print(f"Deleted existing collection: {collection_name}")
                 time.sleep(1)
             except Exception:
                 pass
 
         # Create collection with dense and sparse vector config
-        self.client.create_collection(
+        vector_size = self.rag_client.dense_model.get_sentence_embedding_dimension()
+        self.qdrant_client.create_collection(
             collection_name=collection_name,
             vectors_config={
-                "content": VectorParams(size=self.vector_size, distance=Distance.COSINE),
-                "queries": VectorParams(size=self.vector_size, distance=Distance.COSINE, multivector_config=models.MultiVectorConfig(
+                "content": VectorParams(size=vector_size, distance=Distance.COSINE),
+                "queries": VectorParams(size=vector_size, distance=Distance.COSINE, multivector_config=models.MultiVectorConfig(
                     comparator=models.MultiVectorComparator.MAX_SIM,
                 )),
             },
@@ -102,7 +176,7 @@ class Indexer:
         # Create payload indexes
         for field_config in config.indexed_fields:
             try:
-                self.client.create_payload_index(
+                self.qdrant_client.create_payload_index(
                     collection_name=collection_name,
                     field_name=field_config.name,
                     field_schema=field_config.index_type,
@@ -137,10 +211,10 @@ class Indexer:
         for i, chunk in enumerate(chunks):
             # Generate dense content embedding
             content = chunk.get("content", "")
-            content_vector = self.dense_model.encode(content).tolist()
+            content_vector = self.rag_client.dense_model.encode(content).tolist()
 
             # Generate sparse BM25 embedding
-            sparse_embeddings = list(self.sparse_model.embed([content]))[0]
+            sparse_embeddings = list(self.rag_client.sparse_model.embed([content]))[0]
             sparse_vector = SparseVector(
                 indices=sparse_embeddings.indices.tolist(),
                 values=sparse_embeddings.values.tolist(),
@@ -149,7 +223,7 @@ class Indexer:
             # Generate dense query embeddings (multi-vector)
             queries = chunk.get("queries", [])
             if queries:
-                query_vectors = self.dense_model.encode(queries).tolist()
+                query_vectors = self.rag_client.dense_model.encode(queries).tolist()
             else:
                 # Fallback: use content as single query
                 query_vectors = [content_vector]
@@ -171,136 +245,18 @@ class Indexer:
 
             # Batch upload
             if len(points) >= batch_size:
-                self.client.upsert(collection_name=collection_name, points=points)
+                self.qdrant_client.upsert(collection_name=collection_name, points=points)
                 print(f"  Indexed {i + 1}/{len(chunks)} chunks")
                 points = []
 
         # Upload remaining
         if points:
-            self.client.upsert(collection_name=collection_name, points=points)
+            self.qdrant_client.upsert(collection_name=collection_name, points=points)
 
         print(f"Indexed {len(chunks)} chunks into {collection_name}")
         return len(chunks)
 
-    def index_code(
-        self,
-        chunks_file: Path,
-        recreate: bool = True,
-        batch_size: int = 100,
-    ) -> int:
-        """Index code chunks from file.
-
-        Args:
-            chunks_file: Path to code-chunks.jsonl.
-            recreate: If True, delete existing collection first.
-            batch_size: Number of chunks per batch.
-
-        Returns:
-            Number of chunks indexed.
-        """
-        print(f"Indexing code from {chunks_file}")
-
-        # Load chunks
-        chunks = self._load_chunks(chunks_file)
-
-        # Create collection
-        self.create_collection(CODE_COLLECTION_CONFIG, recreate=recreate)
-
-        # Index chunks
-        return self.index_chunks(CODE_COLLECTION_CONFIG, chunks, batch_size=batch_size)
-
-    def index_docs(
-        self,
-        chunks_file: Path,
-        recreate: bool = True,
-        batch_size: int = 100,
-    ) -> int:
-        """Index doc chunks from file.
-
-        Args:
-            chunks_file: Path to doc-chunks.jsonl.
-            recreate: If True, delete existing collection first.
-            batch_size: Number of chunks per batch.
-
-        Returns:
-            Number of chunks indexed.
-        """
-        print(f"Indexing docs from {chunks_file}")
-
-        # Load chunks
-        chunks = self._load_chunks(chunks_file)
-
-        # Create collection
-        self.create_collection(DOC_COLLECTION_CONFIG, recreate=recreate)
-
-        # Index chunks
-        return self.index_chunks(DOC_COLLECTION_CONFIG, chunks, batch_size=batch_size)
-
-    def index_all(
-        self,
-        recreate: bool = True,
-        batch_size: int = 100,
-    ) -> dict[str, int]:
-        """Index both code and doc chunks.
-
-        Reads from data/processed/code-chunks.jsonl and doc-chunks.jsonl.
-
-        Args:
-            recreate: If True, delete existing collections first.
-            batch_size: Number of chunks per batch.
-
-        Returns:
-            Dict mapping collection name to chunk count.
-        """
-        print("=" * 60)
-        print("VTK RAG Indexing")
-        print("=" * 60)
-        print(f"Dense model: {self.dense_model.get_sentence_embedding_dimension()}-dim")
-        print("Sparse model: BM25")
-
-        results = {}
-
-        code_file = self.data_dir / "code-chunks.jsonl"
-        if code_file.exists():
-            results["vtk_code"] = self.index_code(code_file, recreate, batch_size)
-        else:
-            print(f"Warning: Code chunks file not found: {code_file}")
-
-        doc_file = self.data_dir / "doc-chunks.jsonl"
-        if doc_file.exists():
-            results["vtk_docs"] = self.index_docs(doc_file, recreate, batch_size)
-        else:
-            print(f"Warning: Doc chunks file not found: {doc_file}")
-
-        # Summary
-        print("\n" + "=" * 60)
-        print("Indexing Complete")
-        print("=" * 60)
-        for collection, count in results.items():
-            info = self.get_collection_info(collection)
-            print(f"  {collection}: {count:,} chunks indexed ({info['status']})")
-        print("\nQdrant dashboard: http://localhost:6333/dashboard")
-
-        return results
-
-    def _load_chunks(self, file_path: Path) -> list[dict[str, Any]]:
-        """Load chunks from JSONL file.
-
-        Args:
-            file_path: Path to JSONL file.
-
-        Returns:
-            List of chunk dictionaries.
-        """
-        chunks = []
-        with open(file_path, encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    chunks.append(json.loads(line))
-        print(f"Loaded {len(chunks)} chunks from {file_path}")
-        return chunks
-
-    def get_collection_info(self, collection_name: str) -> dict[str, Any]:
+    def _get_collection_info(self, collection_name: str) -> dict[str, Any]:
         """Get information about a collection.
 
         Args:
@@ -309,7 +265,7 @@ class Indexer:
         Returns:
             Dict with name, points_count, and status.
         """
-        info = self.client.get_collection(collection_name)
+        info = self.qdrant_client.get_collection(collection_name)
         return {
             "name": collection_name,
             "points_count": info.points_count,

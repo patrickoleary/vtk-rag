@@ -1,5 +1,9 @@
 """Tests for the retrieval module."""
 
+from qdrant_client.models import Filter
+
+from vtk_rag.config import load_config
+from vtk_rag.rag import RAGClient
 
 
 class TestRetriever:
@@ -50,11 +54,8 @@ class TestSearchResult:
         )
 
         assert result.class_name == "vtkSphereSource"
-        assert result.chunk_type == "vtkmodules.vtkFiltersSources"
         assert result.synopsis == sample_code_chunk["synopsis"]
-        assert result.title == sample_code_chunk["title"]
-        assert result.role == "source_geometric"
-        assert result.roles == ["source_geometric"]
+        assert result.role == "input"
         assert result.visibility_score == 0.9
         assert result.output_datatype == "vtkPolyData"
 
@@ -74,136 +75,99 @@ class TestSearchResult:
         assert result.class_name == "vtkSphereSource"
         assert result.chunk_type == "class_overview"
         assert result.action_phrase == "create a sphere"
-        assert result.role == "source_geometric"
+        assert result.role == "input"
+        assert result.module == "vtkmodules.vtkFiltersSources"
 
 
-class TestFilterBuilder:
-    """Tests for the FilterBuilder class."""
+class TestRetrieverBuildFilter:
+    """Tests for Retriever._build_filter method."""
 
-    def test_import(self):
-        """Test that FilterBuilder can be imported."""
-        from vtk_rag.retrieval import FilterBuilder
-        assert FilterBuilder is not None
+    def test_none_returns_none(self):
+        """Test that None input returns None."""
+        from vtk_rag.retrieval import Retriever
 
-    def test_empty_build(self):
-        """Test building with no conditions returns None."""
-        from vtk_rag.retrieval import FilterBuilder
+        config = load_config()
+        rag_client = RAGClient(config.rag_client)
+        retriever = Retriever(rag_client)
 
-        builder = FilterBuilder()
-        result = builder.build()
+        result = retriever._build_filter(None)
         assert result is None
 
-    def test_match(self):
-        """Test exact match condition."""
-        from vtk_rag.retrieval import FilterBuilder
+    def test_filter_passthrough(self):
+        """Test that Filter objects pass through unchanged."""
+        from vtk_rag.retrieval import Retriever
 
-        builder = FilterBuilder().match("role", "source_geometric")
-        result = builder.build()
+        config = load_config()
+        rag_client = RAGClient(config.rag_client)
+        retriever = Retriever(rag_client)
 
+        original = Filter(must=[])
+        result = retriever._build_filter(original)
+        assert result is original
+
+    def test_exact_match(self):
+        """Test exact match from dict."""
+        from vtk_rag.retrieval import Retriever
+
+        config = load_config()
+        rag_client = RAGClient(config.rag_client)
+        retriever = Retriever(rag_client)
+
+        result = retriever._build_filter({"role": "source_geometric"})
         assert result is not None
         assert len(result.must) == 1
 
     def test_match_any(self):
-        """Test match-any condition."""
-        from vtk_rag.retrieval import FilterBuilder
+        """Test match-any from dict."""
+        from vtk_rag.retrieval import Retriever
 
-        builder = FilterBuilder().match_any("class_name", ["vtkSphereSource", "vtkConeSource"])
-        result = builder.build()
+        config = load_config()
+        rag_client = RAGClient(config.rag_client)
+        retriever = Retriever(rag_client)
 
+        result = retriever._build_filter({
+            "class_name": ["vtkSphereSource", "vtkConeSource"]
+        })
         assert result is not None
         assert len(result.must) == 1
 
     def test_range(self):
-        """Test range condition."""
-        from vtk_rag.retrieval import FilterBuilder
+        """Test range filter from dict."""
+        from vtk_rag.retrieval import Retriever
 
-        builder = FilterBuilder().range("visibility_score", gte=0.7)
-        result = builder.build()
+        config = load_config()
+        rag_client = RAGClient(config.rag_client)
+        retriever = Retriever(rag_client)
 
-        assert result is not None
-        assert len(result.must) == 1
-
-    def test_exclude(self):
-        """Test exclusion condition."""
-        from vtk_rag.retrieval import FilterBuilder
-
-        builder = FilterBuilder().exclude("chunk_type", "inheritance")
-        result = builder.build()
-
-        assert result is not None
-        assert len(result.must_not) == 1
-
-    def test_should_match(self):
-        """Test should-match condition."""
-        from vtk_rag.retrieval import FilterBuilder
-
-        builder = FilterBuilder().should_match("type", "Visualization Pipeline")
-        result = builder.build()
-
-        assert result is not None
-        assert len(result.should) == 1
-
-    def test_chaining(self):
-        """Test method chaining."""
-        from vtk_rag.retrieval import FilterBuilder
-
-        builder = (
-            FilterBuilder()
-            .match("role", "source_geometric")
-            .match_any("class_name", ["vtkSphereSource", "vtkConeSource"])
-            .range("visibility_score", gte=0.7)
-            .exclude("chunk_type", "inheritance")
-        )
-        result = builder.build()
-
-        assert result is not None
-        assert len(result.must) == 3
-        assert len(result.must_not) == 1
-
-    def test_from_dict_exact_match(self):
-        """Test creating FilterBuilder from dict with exact match."""
-        from vtk_rag.retrieval import FilterBuilder
-
-        builder = FilterBuilder.from_dict({"role": "source_geometric"})
-        result = builder.build()
-
-        assert result is not None
-        assert len(result.must) == 1
-
-    def test_from_dict_match_any(self):
-        """Test creating FilterBuilder from dict with match-any."""
-        from vtk_rag.retrieval import FilterBuilder
-
-        builder = FilterBuilder.from_dict({
-            "class_name": ["vtkSphereSource", "vtkConeSource"]
-        })
-        result = builder.build()
-
-        assert result is not None
-        assert len(result.must) == 1
-
-    def test_from_dict_range(self):
-        """Test creating FilterBuilder from dict with range."""
-        from vtk_rag.retrieval import FilterBuilder
-
-        builder = FilterBuilder.from_dict({
+        result = retriever._build_filter({
             "visibility_score": {"gte": 0.7, "lte": 1.0}
         })
-        result = builder.build()
-
         assert result is not None
         assert len(result.must) == 1
 
-    def test_from_dict_combined(self):
-        """Test creating FilterBuilder from dict with multiple conditions."""
-        from vtk_rag.retrieval import FilterBuilder
+    def test_combined(self):
+        """Test combined filters from dict."""
+        from vtk_rag.retrieval import Retriever
 
-        builder = FilterBuilder.from_dict({
+        config = load_config()
+        rag_client = RAGClient(config.rag_client)
+        retriever = Retriever(rag_client)
+
+        result = retriever._build_filter({
             "role": "source_geometric",
             "class_name": ["vtkSphereSource", "vtkConeSource"],
             "visibility_score": {"gte": 0.7},
         })
-        result = builder.build()
-
         assert result is not None
         assert len(result.must) == 3
+
+    def test_empty_dict_returns_none(self):
+        """Test that empty dict returns None."""
+        from vtk_rag.retrieval import Retriever
+
+        config = load_config()
+        rag_client = RAGClient(config.rag_client)
+        retriever = Retriever(rag_client)
+
+        result = retriever._build_filter({})
+        assert result is None

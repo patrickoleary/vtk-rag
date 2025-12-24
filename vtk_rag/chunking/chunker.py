@@ -5,8 +5,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from .code_chunker import CodeChunker
-from .doc_chunker import DocChunker
+from vtk_rag.mcp import VTKClient
+
+from .code import CodeChunker
+from .doc import DocChunker
+
+from vtk_rag.rag import RAGClient
 
 
 class Chunker:
@@ -14,34 +18,34 @@ class Chunker:
 
     Processes raw VTK data files and produces chunked JSONL files ready
     for indexing.
-
-    Example:
-        chunker = Chunker()
-        chunker.chunk_all()
-
-        # Or individually
-        chunker.chunk_code()
-        chunker.chunk_docs()
     """
 
-    def __init__(self, base_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        rag_client: RAGClient,
+        mcp_client: VTKClient,
+        base_path: Path | None = None,
+    ) -> None:
         """Initialize the chunker.
 
         Args:
+            rag_client: RAG client providing config access.
+            mcp_client: MCP client for VTK API access.
             base_path: Project root directory. Defaults to vtk_rag parent.
         """
+        self.mcp_client = mcp_client
         self.base_path = base_path or Path(__file__).parent.parent.parent
 
         # Input paths
-        self.examples_path = self.base_path / "data/raw/vtk-python-examples.jsonl"
-        self.tests_path = self.base_path / "data/raw/vtk-python-tests.jsonl"
-        self.docs_path = self.base_path / "data/raw/vtk-python-docs.jsonl"
+        self.examples_path = self.base_path / rag_client.raw_dir / rag_client.examples_file
+        self.tests_path = self.base_path / rag_client.raw_dir / rag_client.tests_file
+        self.docs_path = self.base_path / rag_client.raw_dir / rag_client.docs_file
 
         # Output paths
-        self.code_output = self.base_path / "data/processed/code-chunks.jsonl"
-        self.docs_output = self.base_path / "data/processed/doc-chunks.jsonl"
+        self.code_output = self.base_path / rag_client.chunk_dir / rag_client.code_chunks
+        self.docs_output = self.base_path / rag_client.chunk_dir / rag_client.doc_chunks
 
-    def chunk_all(self) -> dict[str, Any]:
+    def chunk(self) -> dict[str, Any]:
         """Chunk all sources (code and docs).
 
         Returns:
@@ -109,36 +113,6 @@ class Chunker:
             "output": str(self.code_output),
         }
 
-    def chunk_docs(self) -> dict[str, Any]:
-        """Chunk class/method documentation.
-
-        Reads from data/raw/vtk-python-docs.jsonl.
-        Writes to data/processed/doc-chunks.jsonl.
-
-        Returns:
-            Stats dict with keys: docs, chunks, output.
-        """
-        self.docs_output.parent.mkdir(parents=True, exist_ok=True)
-
-        print("\n[2/2] Documentation Chunks")
-        print("-" * 40)
-        print(f"  Input: {self.docs_path.name}")
-
-        total_docs, total_chunks, chunk_types = self._process_doc_file(
-            self.docs_path, self.docs_output
-        )
-
-        print(f"    → {total_docs} docs, {total_chunks} chunks")
-        for chunk_type, count in sorted(chunk_types.items()):
-            print(f"      - {chunk_type}: {count}")
-        print(f"  Output: {self.docs_output}")
-
-        return {
-            "docs": total_docs,
-            "chunks": total_chunks,
-            "output": str(self.docs_output),
-        }
-
     def _process_code_file(
         self, input_path: Path, output_path: Path, append: bool = False
     ) -> tuple[int, int]:
@@ -155,29 +129,53 @@ class Chunker:
                 record = json.loads(line)
                 total_examples += 1
 
-                chunks = self._chunk_code_example(record)
+                code = record.get("code", "")
+                if not code:
+                    continue
 
-                for chunk in chunks:
+                example_id = record.get("id", "unknown")
+                chunker = CodeChunker(code, example_id, self.mcp_client)
+
+                for chunk in chunker.extract_chunks():
                     outfile.write(json.dumps(chunk) + "\n")
                     total_chunks += 1
 
         return total_examples, total_chunks
 
-    def _chunk_code_example(self, record: dict) -> list[dict]:
-        """Extract all VTK semantic chunks from a single example."""
-        code = record.get("code", "")
-        example_id = record.get("id", "unknown")
+    def chunk_docs(self) -> dict[str, Any]:
+        """Chunk documentation.
 
-        if not code:
-            return []
+        Reads from data/raw/vtk-python-docs.jsonl.
+        Writes to data/processed/doc-chunks.jsonl.
 
-        chunker = CodeChunker(code, example_id)
-        return chunker.extract_chunks()
+        Returns:
+            Stats dict with keys: docs, chunks, output.
+        """
+        print("\n[2/2] Documentation Chunks")
+        print("-" * 40)
+        print(f"  Input: {self.docs_path.name}")
+
+        self.docs_output.parent.mkdir(parents=True, exist_ok=True)
+
+        total_docs, total_doc_chunks, doc_chunk_type_counts = self._process_doc_file(
+            self.docs_path, self.docs_output
+        )
+
+        print(f"    → {total_docs} docs, {total_doc_chunks} chunks")
+        for doc_chunk_type, count in sorted(doc_chunk_type_counts.items()):
+            print(f"      - {doc_chunk_type}: {count}")
+        print(f"  Output: {self.docs_output}")
+
+        return {
+            "docs": total_docs,
+            "chunks": total_doc_chunks,
+            "output": str(self.docs_output),
+        }
 
     def _process_doc_file(
         self, input_path: Path, output_path: Path
-    ) -> tuple[int, int, dict]:
-        """Process API docs file and write chunks to output."""
+    ) -> tuple[int, int, dict[str, int]]:
+        """Process a single doc input file and write chunks to output."""
         total_docs = 0
         total_chunks = 0
         chunk_type_counts: dict[str, int] = defaultdict(int)
@@ -190,19 +188,14 @@ class Chunker:
                 record = json.loads(line)
                 total_docs += 1
 
-                chunks = self._chunk_doc(record)
+                if not record.get("class_name"):
+                    continue
 
-                for chunk in chunks:
+                doc_chunker = DocChunker(record, self.mcp_client)
+
+                for chunk in doc_chunker.extract_chunks():
                     outfile.write(json.dumps(chunk) + "\n")
                     chunk_type_counts[chunk.get("chunk_type", "unknown")] += 1
                     total_chunks += 1
 
-        return total_docs, total_chunks, dict(chunk_type_counts)
-
-    def _chunk_doc(self, record: dict) -> list[dict]:
-        """Extract all chunks from a single API doc."""
-        if not record.get("class_name"):
-            return []
-
-        chunker = DocChunker(record)
-        return chunker.extract_chunks()
+        return total_docs, total_chunks, chunk_type_counts

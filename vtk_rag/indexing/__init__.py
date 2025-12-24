@@ -3,9 +3,9 @@
 Index VTK chunks into Qdrant for hybrid search.
 """
 
-from .collection_config import (
-    CODE_COLLECTION_CONFIG,
-    DOC_COLLECTION_CONFIG,
+from .models import (
+    CODE_CONFIG,
+    DOC_CONFIG,
     CollectionConfig,
     FieldConfig,
 )
@@ -15,6 +15,6 @@ __all__ = [
     "Indexer",
     "CollectionConfig",
     "FieldConfig",
-    "CODE_COLLECTION_CONFIG",
-    "DOC_COLLECTION_CONFIG",
+    "CODE_CONFIG",
+    "DOC_CONFIG",
 ]

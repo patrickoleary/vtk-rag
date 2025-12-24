@@ -4,89 +4,50 @@ Provides search operations over Qdrant collections with support for
 semantic, BM25, and hybrid search modes.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
-from fastembed import SparseTextEmbedding
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
+    FieldCondition,
     Filter,
     Fusion,
     FusionQuery,
+    MatchAny,
+    MatchValue,
     Prefetch,
+    Range,
     SparseVector,
 )
-from sentence_transformers import SentenceTransformer
 
-from .filter_builder import FilterBuilder
-from .search_result import SearchResult
+from vtk_rag.rag import RAGClient
+
+from .models import SearchResult
 
 
 class Retriever:
     """Search VTK code and documentation in Qdrant.
 
-    Supports:
-    - Semantic search (dense vectors)
-    - BM25 search (sparse vectors)
-    - Hybrid search (dense + sparse with RRF fusion)
-    - Multi-vector search (pre-generated queries)
-    - Metadata filtering
-
-    Example:
-        retriever = Retriever()
-
-        # Semantic search (dense vectors)
-        results = retriever.search("create a sphere", collection="vtk_code")
-
-        # BM25 search (sparse vectors)
-        results = retriever.bm25_search("vtkSphereSource", collection="vtk_code")
-
-        # Hybrid search (dense + sparse with RRF fusion)
-        results = retriever.hybrid_search("vtkSphereSource", collection="vtk_docs")
-
-        # Multi-vector search (pre-generated queries)
-        results = retriever.search("sphere", vector_name="queries")
-
-        # Filtered search
-        results = retriever.search(
-            "render pipeline",
-            collection="vtk_code",
-            filters={"role": "source_geometric"},
-        )
-
-        # Convenience methods
-        results = retriever.search_code("render pipeline")
-        results = retriever.search_docs("vtkPolyDataMapper")
-        results = retriever.search_by_class("vtkSphereSource")
-        results = retriever.search_by_role("create geometry", role="source_geometric")
-        results = retriever.search_by_datatype("filter mesh", input_type="vtkPolyData")
-        results = retriever.search_by_module("sources", module="vtkFiltersSources")
-        results = retriever.search_by_chunk_type("API", chunk_type="class_overview")
+    Attributes:
+        rag_client: RAG client providing Qdrant and embedding access.
+        qdrant_client: Qdrant client for vector database operations.
     """
 
-    # Collection names
-    CODE_COLLECTION = "vtk_code"
-    DOCS_COLLECTION = "vtk_docs"
+    CODE_COLLECTION: str = "vtk_code"
+    DOCS_COLLECTION: str = "vtk_docs"
 
-    def __init__(
-        self,
-        qdrant_url: str | None = None,
-        dense_model: str | None = None,
-        sparse_model: str | None = None,
-    ) -> None:
+    rag_client: RAGClient
+    qdrant_client: QdrantClient
+
+    def __init__(self, rag_client: RAGClient) -> None:
         """Initialize the retriever.
 
         Args:
-            qdrant_url: Qdrant server URL. Defaults to config or localhost:6333.
-            dense_model: SentenceTransformer model for dense embeddings.
-            sparse_model: FastEmbed model for sparse (BM25) embeddings.
+            rag_client: RAG client providing Qdrant and embedding access.
         """
-        # Load config for defaults
-        from vtk_rag.config import get_config
-        config = get_config()
-        
-        self.client = QdrantClient(url=qdrant_url or config.qdrant.url)
-        self.dense_model = SentenceTransformer(dense_model or config.embedding.dense_model)
-        self.sparse_model = SparseTextEmbedding(sparse_model or config.embedding.sparse_model)
+        self.rag_client = rag_client
+        self.qdrant_client = rag_client.qdrant_client
 
     def search(
         self,
@@ -102,32 +63,20 @@ class Retriever:
             query: Natural language query.
             collection: Collection to search (vtk_code or vtk_docs).
             limit: Maximum results to return.
-            filters: Filter conditions as dict or Qdrant Filter. Dict format:
-                - Exact match: {"field": "value"}
-                - Match any: {"field": ["val1", "val2"]}
-                - Range: {"field": {"gte": 0.7, "lt": 1.0}}
-
-                Code collection fields: type, vtk_class, function_name, roles,
-                    input_datatype, output_datatype, example_id, variable_name,
-                    visibility_score, title, synopsis.
-
-                Doc collection fields: chunk_type, class_name, role, visibility,
-                    metadata.module, metadata.input_datatype, metadata.output_datatype,
-                    action_phrase, synopsis.
-            vector_name: Vector to search ("content" for semantic, "queries" for
-                pre-generated query embeddings).
+            filters: Filter conditions as dict or Qdrant Filter.
+            vector_name: Vector to search (content or queries).
 
         Returns:
             List of SearchResult objects sorted by relevance score.
         """
         # Generate query embedding
-        query_vector = self.dense_model.encode(query).tolist()
+        query_vector = self.rag_client.dense_model.encode(query).tolist()
 
         # Build filter
         query_filter = self._build_filter(filters)
 
         # Execute search
-        results = self.client.query_points(
+        results = self.qdrant_client.query_points(
             collection_name=collection,
             query=query_vector,
             using=vector_name,
@@ -150,17 +99,13 @@ class Retriever:
             query: Search query (keywords work best).
             collection: Collection to search.
             limit: Maximum results to return.
-            filters: Filter conditions as dict or Qdrant Filter. Dict format:
-                - Exact match: {"field": "value"}
-                - Match any: {"field": ["val1", "val2"]}
-                - Range: {"field": {"gte": 0.7, "lt": 1.0}}
-                See search() docstring for available fields per collection.
+            filters: Filter conditions as dict or Qdrant Filter.
 
         Returns:
             List of SearchResult objects.
         """
         # Generate sparse embedding
-        sparse_emb = list(self.sparse_model.embed([query]))[0]
+        sparse_emb = list(self.rag_client.sparse_model.embed([query]))[0]
         sparse_vector = SparseVector(
             indices=sparse_emb.indices.tolist(),
             values=sparse_emb.values.tolist(),
@@ -170,7 +115,7 @@ class Retriever:
         query_filter = self._build_filter(filters)
 
         # Execute search
-        results = self.client.query_points(
+        results = self.qdrant_client.query_points(
             collection_name=collection,
             query=sparse_vector,
             using="bm25",
@@ -190,25 +135,19 @@ class Retriever:
     ) -> list[SearchResult]:
         """Hybrid search combining dense and sparse vectors with RRF fusion.
 
-        Best for queries that mix natural language with VTK class names.
-
         Args:
             query: Search query.
             collection: Collection to search.
             limit: Maximum results to return.
-            filters: Filter conditions as dict or Qdrant Filter. Dict format:
-                - Exact match: {"field": "value"}
-                - Match any: {"field": ["val1", "val2"]}
-                - Range: {"field": {"gte": 0.7, "lt": 1.0}}
-                See search() docstring for available fields per collection.
+            filters: Filter conditions as dict or Qdrant Filter.
             prefetch_limit: Number of results to prefetch from each vector.
 
         Returns:
             List of SearchResult objects.
         """
         # Generate embeddings
-        dense_vector = self.dense_model.encode(query).tolist()
-        sparse_emb = list(self.sparse_model.embed([query]))[0]
+        dense_vector = self.rag_client.dense_model.encode(query).tolist()
+        sparse_emb = list(self.rag_client.sparse_model.embed([query]))[0]
         sparse_vector = SparseVector(
             indices=sparse_emb.indices.tolist(),
             values=sparse_emb.values.tolist(),
@@ -218,7 +157,7 @@ class Retriever:
         query_filter = self._build_filter(filters)
 
         # Execute hybrid search with RRF fusion
-        results = self.client.query_points(
+        results = self.qdrant_client.query_points(
             collection_name=collection,
             prefetch=[
                 Prefetch(
@@ -249,20 +188,11 @@ class Retriever:
     ) -> list[SearchResult]:
         """Search code chunks.
 
-        Convenience method for searching vtk_code collection.
-
         Args:
             query: Search query.
             limit: Maximum results.
-            filters: Filter conditions as dict. Dict format:
-                - Exact match: {"field": "value"}
-                - Match any: {"field": ["val1", "val2"]}
-                - Range: {"field": {"gte": 0.7, "lt": 1.0}}
-
-                Available fields: type, vtk_class, function_name, roles,
-                    input_datatype, output_datatype, example_id, variable_name,
-                    visibility_score, title, synopsis.
-            hybrid: Use hybrid search (default True).
+            filters: Filter conditions as dict.
+            hybrid: Use hybrid search.
 
         Returns:
             List of SearchResult objects.
@@ -280,20 +210,11 @@ class Retriever:
     ) -> list[SearchResult]:
         """Search documentation chunks.
 
-        Convenience method for searching vtk_docs collection.
-
         Args:
             query: Search query.
             limit: Maximum results.
-            filters: Filter conditions as dict. Dict format:
-                - Exact match: {"field": "value"}
-                - Match any: {"field": ["val1", "val2"]}
-                - Range: {"field": {"gte": 0.7, "lt": 1.0}}
-
-                Available fields: chunk_type, class_name, role, visibility,
-                    metadata.module, metadata.input_datatype, metadata.output_datatype,
-                    action_phrase, synopsis.
-            hybrid: Use hybrid search (default True).
+            filters: Filter conditions as dict.
+            hybrid: Use hybrid search.
 
         Returns:
             List of SearchResult objects.
@@ -310,22 +231,19 @@ class Retriever:
     ) -> list[SearchResult]:
         """Search for chunks related to a specific VTK class.
 
-        Uses BM25 for exact class name matching.
-
         Args:
-            class_name: VTK class name (e.g., "vtkSphereSource").
+            class_name: VTK class name.
             collection: Collection to search.
             limit: Maximum results to return.
 
         Returns:
             List of SearchResult objects.
         """
-        field = "class_name" if collection == self.DOCS_COLLECTION else "vtk_class"
         return self.bm25_search(
             query=class_name,
             collection=collection,
             limit=limit,
-            filters={field: class_name},
+            filters={"vtk_class_names": class_name},
         )
 
     def search_by_role(
@@ -339,15 +257,14 @@ class Retriever:
 
         Args:
             query: Search query.
-            role: Functional role (e.g., "source_geometric", "filter_general",
-                "mapper_polydata", "actor", "renderer").
+            role: Functional role.
             collection: Collection to search.
             limit: Maximum results to return.
 
         Returns:
             List of SearchResult objects.
         """
-        field = "role" if collection == self.DOCS_COLLECTION else "roles"
+        field = "role"
         return self.hybrid_search(
             query=query,
             collection=collection,
@@ -367,7 +284,7 @@ class Retriever:
 
         Args:
             query: Search query.
-            input_type: Input data type (e.g., "vtkPolyData", "vtkImageData").
+            input_type: Input data type.
             output_type: Output data type.
             collection: Collection to search.
             limit: Maximum results to return.
@@ -376,16 +293,10 @@ class Retriever:
             List of SearchResult objects.
         """
         filters: dict[str, Any] = {}
-        if collection == self.DOCS_COLLECTION:
-            if input_type:
-                filters["metadata.input_datatype"] = input_type
-            if output_type:
-                filters["metadata.output_datatype"] = output_type
-        else:
-            if input_type:
-                filters["input_datatype"] = input_type
-            if output_type:
-                filters["output_datatype"] = output_type
+        if input_type:
+            filters["input_datatype"] = input_type
+        if output_type:
+            filters["output_datatype"] = output_type
 
         return self.hybrid_search(
             query=query,
@@ -404,7 +315,7 @@ class Retriever:
 
         Args:
             query: Search query.
-            module: VTK module path (e.g., "vtkFiltersSources", "vtkRenderingCore").
+            module: VTK module path.
             limit: Maximum results to return.
 
         Returns:
@@ -414,45 +325,58 @@ class Retriever:
             query=query,
             collection=self.DOCS_COLLECTION,
             limit=limit,
-            filters={"metadata.module": module},
+            filters={"module": module},
         )
 
     def search_by_chunk_type(
         self,
         query: str,
         chunk_type: str,
-        collection: str = "vtk_docs",
         limit: int = 10,
     ) -> list[SearchResult]:
-        """Search for specific chunk types.
+        """Search documentation by chunk type.
 
         Args:
             query: Search query.
-            chunk_type: For docs: "class_overview", "constructor", "property_group",
-                "standalone_methods", "inheritance".
-                For code: "Visualization Pipeline", "Rendering Infrastructure", etc.
-            collection: Collection to search.
+            chunk_type: Chunk type.
             limit: Maximum results to return.
 
         Returns:
             List of SearchResult objects.
         """
-        field = "chunk_type" if collection == self.DOCS_COLLECTION else "type"
         return self.hybrid_search(
             query=query,
-            collection=collection,
+            collection=self.DOCS_COLLECTION,
             limit=limit,
-            filters={field: chunk_type},
+            filters={"chunk_type": chunk_type},
         )
 
     def _build_filter(
         self,
         filters: dict[str, Any] | Filter | None,
     ) -> Filter | None:
-        """Convert filter input to Qdrant Filter.
+        """Convert filter dict to Qdrant Filter.
 
         Args:
-            filters: Dict, Filter, or None.
+            filters: Dict with filter conditions, Qdrant Filter, or None.
+
+                Code collection fields:
+                    vtk_class_names, role, input_datatype,
+                    output_datatype, example_id, variable_name,
+                    visibility_score (float), action_phrase, synopsis.
+
+                Doc collection fields:
+                    chunk_type, vtk_class, role, module, input_datatype,
+                    output_datatype, visibility_score (float),
+                    action_phrase, synopsis.
+
+                Dict formats:
+                    Exact match: {"vtk_class_names": "vtkSphereSource"}
+                    Match any: {"role": ["source", "filter"]}
+                    Range: {"visibility_score": {"gte": 0.7}}
+                    Example: {"vtk_class_names": "vtkActor",
+                               "role": "actor",
+                               "visibility_score": {"gte": 0.7}}
 
         Returns:
             Qdrant Filter or None.
@@ -461,4 +385,31 @@ class Retriever:
             return None
         if isinstance(filters, Filter):
             return filters
-        return FilterBuilder.from_dict(filters).build()
+
+        conditions = []
+        for field, value in filters.items():
+            if isinstance(value, dict):
+                # Range filter
+                conditions.append(
+                    FieldCondition(
+                        key=field,
+                        range=Range(
+                            gt=value.get("gt"),
+                            gte=value.get("gte"),
+                            lt=value.get("lt"),
+                            lte=value.get("lte"),
+                        ),
+                    )
+                )
+            elif isinstance(value, list):
+                # Match any
+                conditions.append(
+                    FieldCondition(key=field, match=MatchAny(any=value))
+                )
+            else:
+                # Exact match
+                conditions.append(
+                    FieldCondition(key=field, match=MatchValue(value=value))
+                )
+
+        return Filter(must=conditions) if conditions else None

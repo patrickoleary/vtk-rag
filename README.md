@@ -449,28 +449,27 @@ vtk_rag/
 │   ├── code_chunk.py    # CodeChunk dataclass
 │   ├── doc_chunker.py   # Doc chunk extraction
 │   ├── doc_chunk.py     # DocChunk dataclass
-│   ├── code_query_generator.py
+│   ├── semantic_query_builder.py  # Query generation from action phrases
 │   ├── doc_query_generator.py
 │   ├── lifecycle_analyzer.py
 │   ├── semantic_chunk_builder.py
 │   └── vtk_categories.py
 │
 ├── mcp/
-│   ├── __init__.py          # Exports: VTKAPIClient, VTK_API_CLIENT, PersistentMCPClient
-│   ├── vtk_api_client.py    # VTK class resolution via MCP
-│   └── persistent_mcp_client.py
+│   ├── __init__.py          # Exports: VTKClient, get_vtk_client
+│   └── client.py            # VTK API client
 │
 ├── indexing/
 │   ├── __init__.py      # Exports: Indexer, CollectionConfig, FieldConfig
 │   ├── index.py         # CLI entry point
 │   ├── indexer.py       # Indexer class
-│   └── collection_config.py
+│   └── config.py
 │
 └── retrieval/
     ├── __init__.py      # Exports: Retriever, SearchResult, FilterBuilder
     ├── retriever.py     # Retriever class
     ├── filter_builder.py
-    └── search_result.py
+    └── result.py
 
 tests/
 ├── conftest.py          # Fixtures

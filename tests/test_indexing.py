@@ -13,29 +13,29 @@ class TestIndexer:
     def test_collection_configs_import(self):
         """Test that collection configs can be imported."""
         from vtk_rag.indexing import (
-            CODE_COLLECTION_CONFIG,
-            DOC_COLLECTION_CONFIG,
+            CODE_CONFIG,
+            DOC_CONFIG,
             CollectionConfig,
             FieldConfig,
         )
         assert CollectionConfig is not None
         assert FieldConfig is not None
-        assert CODE_COLLECTION_CONFIG is not None
-        assert DOC_COLLECTION_CONFIG is not None
+        assert CODE_CONFIG is not None
+        assert DOC_CONFIG is not None
 
-    def test_code_collection_config(self):
+    def test_code_config(self):
         """Test code collection configuration."""
-        from vtk_rag.indexing import CODE_COLLECTION_CONFIG
+        from vtk_rag.indexing import CODE_CONFIG
 
-        assert CODE_COLLECTION_CONFIG.name == "vtk_code"
-        assert len(CODE_COLLECTION_CONFIG.indexed_fields) > 0
+        assert CODE_CONFIG.name == "vtk_code"
+        assert len(CODE_CONFIG.indexed_fields) > 0
 
-    def test_doc_collection_config(self):
+    def test_doc_config(self):
         """Test doc collection configuration."""
-        from vtk_rag.indexing import DOC_COLLECTION_CONFIG
+        from vtk_rag.indexing import DOC_CONFIG
 
-        assert DOC_COLLECTION_CONFIG.name == "vtk_docs"
-        assert len(DOC_COLLECTION_CONFIG.indexed_fields) > 0
+        assert DOC_CONFIG.name == "vtk_docs"
+        assert len(DOC_CONFIG.indexed_fields) > 0
 
 
 class TestCollectionConfig:

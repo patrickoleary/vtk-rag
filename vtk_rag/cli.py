@@ -15,27 +15,35 @@ Usage:
 import argparse
 import sys
 
+from .build import main as build_main
+from .build import run_clean
+from .chunking import Chunker
+from .config import get_config
+from .indexing import Indexer
+from .mcp import get_vtk_client
+from .rag import RAGClient
+from .retrieval import Retriever
+
 
 def cmd_chunk(args: argparse.Namespace) -> None:
     """Run the chunking pipeline."""
-    from .chunking import Chunker
-
-    chunker = Chunker()
-    chunker.chunk_all()
+    config = get_config()
+    rag_client = RAGClient(config.rag_client)
+    mcp_client = get_vtk_client()
+    chunker = Chunker(rag_client, mcp_client)
+    chunker.chunk()
 
 
 def cmd_index(args: argparse.Namespace) -> None:
     """Run the indexing pipeline."""
-    from .indexing import Indexer
-
-    indexer = Indexer()
-    indexer.index_all()
+    config = get_config()
+    rag_client = RAGClient(config.rag_client)
+    indexer = Indexer(rag_client)
+    indexer.index()
 
 
 def cmd_build(args: argparse.Namespace) -> None:
     """Run the full build pipeline."""
-    from .build import main as build_main
-
     # Pass through args
     sys.argv = ['build']
     if args.force:
@@ -45,16 +53,14 @@ def cmd_build(args: argparse.Namespace) -> None:
 
 def cmd_clean(args: argparse.Namespace) -> None:
     """Clean processed data and indexes."""
-    from .build import run_clean
-
     run_clean()
 
 
 def cmd_search(args: argparse.Namespace) -> None:
     """Search code and documentation."""
-    from .retrieval import Retriever
-
-    retriever = Retriever()
+    config = get_config()
+    rag_client = RAGClient(config.rag_client)
+    retriever = Retriever(rag_client)
 
     # Determine collection
     if args.code:
