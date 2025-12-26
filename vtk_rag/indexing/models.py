@@ -6,31 +6,29 @@ from typing import Literal
 
 @dataclass
 class FieldConfig:
-    """Configuration for a payload field index.
+    """Configuration for a payload field index."""
 
-    Attributes:
-        name: Field name in the chunk payload.
-        index_type: Qdrant index type (keyword, text, float, integer, bool).
-        description: Human-readable description.
-    """
-
+    # Field name in the chunk payload
     name: str
+
+    # Qdrant index type (keyword, text, float, integer, bool)
     index_type: Literal["keyword", "text", "float", "integer", "bool"]
+
+    # Human-readable description
     description: str = ""
 
 
 @dataclass
 class CollectionConfig:
-    """Configuration for a Qdrant collection.
+    """Configuration for a Qdrant collection."""
 
-    Attributes:
-        name: Collection name in Qdrant.
-        description: Human-readable description.
-        indexed_fields: Payload fields to index for filtering.
-    """
-
+    # Collection name in Qdrant
     name: str
+
+    # Human-readable description
     description: str
+
+    # Payload fields to index for filtering
     indexed_fields: list[FieldConfig] = field(default_factory=list)
 
 

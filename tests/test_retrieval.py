@@ -87,7 +87,7 @@ class TestRetrieverBuildFilter:
         from vtk_rag.retrieval import Retriever
 
         config = load_config()
-        rag_client = RAGClient(config.rag_client)
+        rag_client = RAGClient(config)
         retriever = Retriever(rag_client)
 
         result = retriever._build_filter(None)
@@ -98,7 +98,7 @@ class TestRetrieverBuildFilter:
         from vtk_rag.retrieval import Retriever
 
         config = load_config()
-        rag_client = RAGClient(config.rag_client)
+        rag_client = RAGClient(config)
         retriever = Retriever(rag_client)
 
         original = Filter(must=[])
@@ -110,7 +110,7 @@ class TestRetrieverBuildFilter:
         from vtk_rag.retrieval import Retriever
 
         config = load_config()
-        rag_client = RAGClient(config.rag_client)
+        rag_client = RAGClient(config)
         retriever = Retriever(rag_client)
 
         result = retriever._build_filter({"role": "source_geometric"})
@@ -122,7 +122,7 @@ class TestRetrieverBuildFilter:
         from vtk_rag.retrieval import Retriever
 
         config = load_config()
-        rag_client = RAGClient(config.rag_client)
+        rag_client = RAGClient(config)
         retriever = Retriever(rag_client)
 
         result = retriever._build_filter({
@@ -136,7 +136,7 @@ class TestRetrieverBuildFilter:
         from vtk_rag.retrieval import Retriever
 
         config = load_config()
-        rag_client = RAGClient(config.rag_client)
+        rag_client = RAGClient(config)
         retriever = Retriever(rag_client)
 
         result = retriever._build_filter({
@@ -150,7 +150,7 @@ class TestRetrieverBuildFilter:
         from vtk_rag.retrieval import Retriever
 
         config = load_config()
-        rag_client = RAGClient(config.rag_client)
+        rag_client = RAGClient(config)
         retriever = Retriever(rag_client)
 
         result = retriever._build_filter({
@@ -166,7 +166,7 @@ class TestRetrieverBuildFilter:
         from vtk_rag.retrieval import Retriever
 
         config = load_config()
-        rag_client = RAGClient(config.rag_client)
+        rag_client = RAGClient(config)
         retriever = Retriever(rag_client)
 
         result = retriever._build_filter({})

@@ -1,15 +1,10 @@
 # !/usr/bin/env python3
 
 # noinspection PyUnresolvedReferences
-import vtkmodules.vtkInteractionStyle
+
 # noinspection PyUnresolvedReferences
-import vtkmodules.vtkRenderingOpenGL2
 from vtkmodules.vtkCommonColor import vtkNamedColors
-from vtkmodules.vtkCommonCore import (
-    vtkPoints,
-    VTK_VERSION_NUMBER,
-    vtkVersion
-)
+from vtkmodules.vtkCommonCore import VTK_VERSION_NUMBER, vtkPoints, vtkVersion
 from vtkmodules.vtkCommonDataModel import (
     VTK_TETRA,
     vtkCellArray,
@@ -18,9 +13,9 @@ from vtkmodules.vtkCommonDataModel import (
     vtkLine,
     vtkPentagonalPrism,
     vtkPixel,
+    vtkPolygon,
     vtkPolyLine,
     vtkPolyVertex,
-    vtkPolygon,
     vtkPyramid,
     vtkQuad,
     vtkTetra,
@@ -29,16 +24,10 @@ from vtkmodules.vtkCommonDataModel import (
     vtkUnstructuredGrid,
     vtkVertex,
     vtkVoxel,
-    vtkWedge
+    vtkWedge,
 )
-from vtkmodules.vtkFiltersSources import (
-    vtkCubeSource,
-    vtkSphereSource
-)
-from vtkmodules.vtkInteractionWidgets import (
-    vtkCameraOrientationWidget,
-    vtkOrientationMarkerWidget
-)
+from vtkmodules.vtkFiltersSources import vtkCubeSource, vtkSphereSource
+from vtkmodules.vtkInteractionWidgets import vtkCameraOrientationWidget, vtkOrientationMarkerWidget
 from vtkmodules.vtkRenderingAnnotation import vtkAxesActor
 from vtkmodules.vtkRenderingCore import (
     vtkActor,
@@ -48,11 +37,11 @@ from vtkmodules.vtkRenderingCore import (
     vtkLightKit,
     vtkPolyDataMapper,
     vtkProperty,
+    vtkRenderer,
     vtkRenderWindow,
     vtkRenderWindowInteractor,
-    vtkRenderer,
     vtkTextMapper,
-    vtkTextProperty
+    vtkTextProperty,
 )
 from vtkmodules.vtkRenderingLabel import vtkLabeledDataMapper
 

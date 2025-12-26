@@ -2,6 +2,18 @@
 Configuration management for VTK RAG.
 
 Loads configuration from .env file and provides typed access.
+
+Used by:
+    - cli.py, build.py (get_config)
+    - mcp/client.py (AppConfig, get_config)
+    - rag/client.py (RAGConfig)
+
+Code Map:
+    MCPConfig                        # MCP server settings
+    RAGConfig                        # Qdrant, embedding, data path settings
+    AppConfig                        # top-level config container
+    load_config()                    # load from .env file
+    get_config()                     # singleton accessor
 """
 
 import os

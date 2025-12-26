@@ -1,32 +1,13 @@
-"""Data models for VTK code chunking."""
+"""CodeChunk dataclass for VTK code chunking.
+
+Used by:
+    SemanticChunk.build_chunk() in semantic_chunk.py
+"""
 
 from __future__ import annotations
 
-import ast
 from dataclasses import dataclass, field
-from typing import Any, TypedDict
-
-
-class MethodCall(TypedDict):
-    """Structure of a method call with its arguments."""
-    name: str  # Method name (e.g., "SetRadius")
-    args: list[str]  # String representations of arguments (e.g., ["10", "True"])
-
-
-# VTKLifecycle represents a VTK object's usage within a code scope.
-# Tracks the variable, class, statements, and relationships (mapper/actor/properties).
-# Note: We use functional syntax to allow 'class' as a key (Python keyword).
-VTKLifecycle = TypedDict('VTKLifecycle', {
-    'variable': str | None,  # Variable name or None for static methods
-    'class': str,  # VTK class name
-    'type': str,  # Role classification (e.g., "properties", "infrastructure")
-    'statements': list[ast.stmt],  # AST statements for this lifecycle
-    'properties': list[dict[str, str]],  # Related properties with 'variable' and 'class' keys
-    'mapper': str | None,  # Mapper variable if this is an actor
-    'actor': str | None,  # Actor variable if this is a mapper
-    'methods': list[str],  # Method names called on this VTK object (legacy, for compatibility)
-    'method_calls': list[MethodCall],  # Method calls with arguments
-}, total=False)
+from typing import Any
 
 
 @dataclass

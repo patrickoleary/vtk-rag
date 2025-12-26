@@ -210,7 +210,7 @@ class TestChunkGroupings:
         all_infra_classes = set()
         for chunk in infra_chunks:
             all_infra_classes.update(cls["class"] for cls in chunk.get("vtk_classes", []))
-        assert False, f"Expected vtkRenderWindow and vtkRenderWindowInteractor in same chunk, got: {all_infra_classes}"
+        pytest.fail(f"Expected vtkRenderWindow and vtkRenderWindowInteractor in same chunk, got: {all_infra_classes}")
 
     def test_infrastructure_chunk_ends_with_start(self, chunks: list[dict]):
         """Infrastructure chunk content should end with iren.Start() or similar."""
@@ -226,7 +226,7 @@ class TestChunkGroupings:
                 if last_start_pos > len(content) - 100:
                     return  # Found it at the end, test passes
 
-        assert False, "Expected infrastructure chunk to end with .Start() call"
+        pytest.fail("Expected infrastructure chunk to end with .Start() call")
 
     def test_properties_groups_mapper_with_actor(self, chunks: list[dict]):
         """Properties chunks should group mappers with their actors."""
@@ -256,7 +256,7 @@ class TestChunkGroupings:
             if has_2d_mapper and has_actor2d:
                 return  # Found it, test passes
 
-        assert False, "Expected vtkTextMapper or vtkLabeledDataMapper grouped with vtkActor2D"
+        pytest.fail("Expected vtkTextMapper or vtkLabeledDataMapper grouped with vtkActor2D")
 
     def test_infrastructure_does_not_contain_loop_body(self, chunks: list[dict]):
         """Infrastructure chunk should not contain unrelated loop body code like mappers/actors."""

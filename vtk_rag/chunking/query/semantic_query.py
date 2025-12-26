@@ -2,6 +2,20 @@
 
 Generates natural language "how do you" queries from VTK class action phrases
 and method calls.
+
+Used by:
+    - ../doc/chunker.py (DocChunker)
+    - ../code/semantic_chunk.py (SemanticChunk)
+
+Code Map:
+    SemanticQuery
+        build()                      # public API for multiple classes
+            └── build_queries()      # single class queries
+                    ├── class_to_query()     # action phrase → query
+                    └── method_to_query()    # method name → query
+                            ├── _to_words()      # CamelCase → words
+                            └── _with_article()  # add a/an
+        function_name_to_query()     # helper function name → query
 """
 
 import re

@@ -10,6 +10,14 @@ Usage:
     python -m vtk_rag build              # Full pipeline (chunk + index)
     python -m vtk_rag clean              # Remove processed data and indexes
     python -m vtk_rag search "query"     # Search code and docs
+
+Code Map:
+    main()                           # CLI entry point
+        ├── cmd_chunk()              # chunk subcommand
+        ├── cmd_index()              # index subcommand
+        ├── cmd_build()              # build subcommand (calls build.main)
+        ├── cmd_clean()              # clean subcommand (calls build.run_clean)
+        └── cmd_search()             # search subcommand
 """
 
 import argparse
@@ -28,7 +36,7 @@ from .retrieval import Retriever
 def cmd_chunk(args: argparse.Namespace) -> None:
     """Run the chunking pipeline."""
     config = get_config()
-    rag_client = RAGClient(config.rag_client)
+    rag_client = RAGClient(config)
     mcp_client = get_vtk_client()
     chunker = Chunker(rag_client, mcp_client)
     chunker.chunk()
@@ -37,7 +45,7 @@ def cmd_chunk(args: argparse.Namespace) -> None:
 def cmd_index(args: argparse.Namespace) -> None:
     """Run the indexing pipeline."""
     config = get_config()
-    rag_client = RAGClient(config.rag_client)
+    rag_client = RAGClient(config)
     indexer = Indexer(rag_client)
     indexer.index()
 
@@ -59,7 +67,7 @@ def cmd_clean(args: argparse.Namespace) -> None:
 def cmd_search(args: argparse.Namespace) -> None:
     """Search code and documentation."""
     config = get_config()
-    rag_client = RAGClient(config.rag_client)
+    rag_client = RAGClient(config)
     retriever = Retriever(rag_client)
 
     # Determine collection

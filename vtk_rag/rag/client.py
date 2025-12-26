@@ -1,4 +1,27 @@
-"""RAG client providing Qdrant and embedding access."""
+"""RAG client providing Qdrant and embedding access.
+
+Used by:
+    - chunking/chunker.py (Chunker)
+    - indexing/indexer.py (Indexer)
+    - retrieval/retriever.py (Retriever)
+
+Code Map:
+    RAGClient
+        __init__()                   # initialize Qdrant + embedding models
+        qdrant_url                   # property: Qdrant server URL
+        code_collection              # property: code collection name
+        docs_collection              # property: docs collection name
+        top_k                        # property: default result limit
+        use_hybrid                   # property: hybrid search flag
+        min_visibility_score         # property: visibility threshold
+        raw_dir                      # property: raw data directory
+        chunk_dir                    # property: chunk output directory
+        examples_file                # property: examples filename
+        tests_file                   # property: tests filename
+        docs_file                    # property: docs filename
+        code_chunks                  # property: code chunks filename
+        doc_chunks                   # property: doc chunks filename
+"""
 
 from __future__ import annotations
 
@@ -6,13 +29,13 @@ from fastembed import SparseTextEmbedding
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 
-from vtk_rag.config import RAGConfig
+from vtk_rag.config import AppConfig, RAGConfig
 
 
 class RAGClient:
     """Client providing Qdrant and embedding access for RAG operations.
 
-    Instantiated from RAGConfig and passed to Retriever, Indexer, Chunker.
+    Instantiated from AppConfig and passed to Retriever, Indexer, Chunker.
 
     Attributes:
         config: The RAGConfig used to initialize this client.
@@ -29,20 +52,20 @@ class RAGClient:
     dense_model: SentenceTransformer
     sparse_model: SparseTextEmbedding
 
-    def __init__(self, config: RAGConfig) -> None:
+    def __init__(self, config: AppConfig) -> None:
         """Initialize the RAG client.
 
         Args:
-            config: RAG configuration (from AppConfig.rag_client).
+            config: Application configuration.
         """
-        self.config = config
+        self.config = config.rag_client
 
         # Qdrant client
-        self.qdrant_client = QdrantClient(url=config.qdrant_url)
+        self.qdrant_client = QdrantClient(url=self.config.qdrant_url)
 
         # Embedding models
-        self.dense_model = SentenceTransformer(config.dense_model)
-        self.sparse_model = SparseTextEmbedding(config.sparse_model)
+        self.dense_model = SentenceTransformer(self.config.dense_model)
+        self.sparse_model = SparseTextEmbedding(self.config.sparse_model)
 
     @property
     def qdrant_url(self) -> str:

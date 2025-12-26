@@ -1,4 +1,13 @@
-"""Chunker class for building VTK RAG corpus."""
+"""Chunker class for building VTK RAG corpus.
+
+Code Map:
+    Chunker
+        chunk()                      # public API - chunk all sources
+            ├── chunk_code()         # code examples and tests
+            │       └── _process_code_file()
+            └── chunk_docs()         # API documentation
+                    └── _process_doc_file()
+"""
 
 import json
 from collections import defaultdict
@@ -6,11 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from vtk_rag.mcp import VTKClient
+from vtk_rag.rag import RAGClient
 
 from .code import CodeChunker
 from .doc import DocChunker
-
-from vtk_rag.rag import RAGClient
 
 
 class Chunker:

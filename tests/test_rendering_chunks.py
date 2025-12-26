@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import types
-
 import pytest
 
 from vtk_rag.chunking.code import CodeChunker
-from vtk_rag.chunking.code.lifecycle_analyzer import LifecycleAnalyzer
+from vtk_rag.chunking.code.lifecycle.grouper import _group_infrastructure, group_lifecycles
 
 
 @pytest.fixture
@@ -85,8 +83,7 @@ def _base_lifecycle(vtk_class: str, var: str, role: str) -> dict:
 
 def test_group_lifecycles_groups_infrastructure_and_singles(mock_mcp_client):
     """LifecycleAnalyzer groups infrastructure together, other roles are single-lifecycle."""
-    analyzer = LifecycleAnalyzer(code="", helper_methods=set(), function_defs={}, mcp_client=mock_mcp_client)
-
+    # LifecycleAnalyzer not needed for group_lifecycles test
     lifecycles = [
         _base_lifecycle("vtkCamera", "camera", "scene"),
         _base_lifecycle("vtkRenderer", "renderer", "renderer"),
@@ -94,7 +91,7 @@ def test_group_lifecycles_groups_infrastructure_and_singles(mock_mcp_client):
         _base_lifecycle("vtkRenderWindowInteractor", "iren", "infrastructure"),
     ]
 
-    groups = analyzer._group_lifecycles(lifecycles)
+    groups = group_lifecycles(lifecycles)
 
     # Infrastructure grouped together, scene and renderer are single-lifecycle groups
     assert len(groups) == 3, "Expected infrastructure group + 2 single-lifecycle groups"
@@ -112,7 +109,8 @@ def test_group_infrastructure_splits_start_after_styles(mock_mcp_client):
     """Infrastructure grouping should split interactor: setup, then styles, then Start() last."""
     import ast
 
-    analyzer = LifecycleAnalyzer(code="", helper_methods=set(), function_defs={}, mcp_client=mock_mcp_client)
+    # LifecycleAnalyzer not needed - testing _group_infrastructure directly
+    _ = mock_mcp_client  # Silence unused fixture warning
 
     # Create AST statements for the interactor
     setup_stmt = ast.parse("iren.SetRenderWindow(window)").body[0]
@@ -139,7 +137,7 @@ def test_group_infrastructure_splits_start_after_styles(mock_mcp_client):
 
     lifecycles = [interactor_lc, style_lc, window_lc]
 
-    groups = analyzer._group_infrastructure(lifecycles)
+    groups = _group_infrastructure(lifecycles)
 
     # Should return one group with all infrastructure
     assert len(groups) == 1

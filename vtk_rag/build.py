@@ -15,6 +15,14 @@ Usage:
 Prerequisites:
     - Raw data files in data/raw/
     - Qdrant running: docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
+
+Code Map:
+    main()                           # CLI entry point
+        ├── run_clean()              # clean processed data and indexes (public)
+        ├── _check_prerequisites()   # verify raw data, Qdrant, dependencies
+        ├── _run_chunking()          # stage 1: chunk raw data
+        └── _run_indexing()          # stage 2: build Qdrant indexes
+    _print_header/step/warning/error/success()  # terminal output helpers
 """
 
 import argparse
@@ -42,7 +50,7 @@ class Colors:
     END = '\033[0m'
 
 
-def print_header(text: str) -> None:
+def _print_header(text: str) -> None:
     """Print a section header."""
     print()
     print(Colors.BOLD + Colors.BLUE + "=" * 60 + Colors.END)
@@ -50,27 +58,27 @@ def print_header(text: str) -> None:
     print(Colors.BOLD + Colors.BLUE + "=" * 60 + Colors.END)
 
 
-def print_step(text: str) -> None:
+def _print_step(text: str) -> None:
     """Print a step indicator."""
     print(Colors.GREEN + f"→ {text}" + Colors.END)
 
 
-def print_warning(text: str) -> None:
+def _print_warning(text: str) -> None:
     """Print a warning message."""
     print(Colors.YELLOW + f"⚠ {text}" + Colors.END)
 
 
-def print_error(text: str) -> None:
+def _print_error(text: str) -> None:
     """Print an error message."""
     print(Colors.RED + f"✗ {text}" + Colors.END)
 
 
-def print_success(text: str) -> None:
+def _print_success(text: str) -> None:
     """Print a success message."""
     print(Colors.GREEN + f"✓ {text}" + Colors.END)
 
 
-def check_prerequisites(skip_qdrant: bool = False) -> bool:
+def _check_prerequisites(skip_qdrant: bool = False) -> bool:
     """Check if prerequisites are met.
 
     Args:
@@ -79,13 +87,13 @@ def check_prerequisites(skip_qdrant: bool = False) -> bool:
     Returns:
         True if all prerequisites are met.
     """
-    print_header("Checking Prerequisites")
+    _print_header("Checking Prerequisites")
 
     issues = []
     base_path = Path(__file__).parent.parent
 
     # Check raw data files
-    print_step("Checking raw data files...")
+    _print_step("Checking raw data files...")
     rag = get_config().rag_client
     raw_dir = rag.raw_dir
     raw_files = [
@@ -105,7 +113,7 @@ def check_prerequisites(skip_qdrant: bool = False) -> bool:
 
     # Check Qdrant (unless skipped)
     if not skip_qdrant:
-        print_step("Checking Qdrant...")
+        _print_step("Checking Qdrant...")
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             config = get_config()
@@ -124,13 +132,13 @@ def check_prerequisites(skip_qdrant: bool = False) -> bool:
                 print(f"  ✓ Qdrant running on {qdrant_url}")
             else:
                 issues.append("Qdrant not running")
-                print_warning(f"Qdrant not running on {qdrant_url}")
+                _print_warning(f"Qdrant not running on {qdrant_url}")
                 print("    Start with: docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant")
         except Exception as e:
             issues.append(f"Could not check Qdrant: {e}")
 
     # Check dependencies
-    print_step("Checking dependencies...")
+    _print_step("Checking dependencies...")
     try:
         from fastembed import SparseTextEmbedding  # noqa: F401
         from qdrant_client import QdrantClient  # noqa: F401
@@ -138,58 +146,58 @@ def check_prerequisites(skip_qdrant: bool = False) -> bool:
         print("  ✓ All dependencies installed")
     except ImportError as e:
         issues.append(f"Missing dependency: {e.name}")
-        print_error(f"Missing dependency: {e.name}")
+        _print_error(f"Missing dependency: {e.name}")
         print("    Install with: pip install -e .")
 
     if issues:
         print()
-        print_error("Prerequisites not met:")
+        _print_error("Prerequisites not met:")
         for issue in issues:
             print(f"  • {issue}")
         return False
 
     print()
-    print_success("All prerequisites met")
+    _print_success("All prerequisites met")
     return True
 
 
-def run_chunking() -> dict[str, int]:
+def _run_chunking() -> dict[str, int]:
     """Run the chunking pipeline.
 
     Returns:
         Dict with chunk counts.
     """
-    print_header("Stage 1: Chunking")
+    _print_header("Stage 1: Chunking")
 
     config = get_config()
-    rag_client = RAGClient(config.rag_client)
+    rag_client = RAGClient(config)
     mcp_client = get_vtk_client()
     chunker = Chunker(rag_client, mcp_client)
     return chunker.chunk()
 
 
-def run_indexing() -> dict[str, int]:
+def _run_indexing() -> dict[str, int]:
     """Run the indexing pipeline.
 
     Returns:
         Dict with index counts.
     """
-    print_header("Stage 2: Indexing")
+    _print_header("Stage 2: Indexing")
 
     config = get_config()
-    rag_client = RAGClient(config.rag_client)
+    rag_client = RAGClient(config)
     indexer = Indexer(rag_client)
     return indexer.index()
 
 
 def run_clean() -> None:
     """Clean processed data and Qdrant collections."""
-    print_header("Cleaning")
+    _print_header("Cleaning")
 
     base_path = Path(__file__).parent.parent
 
     # Clean processed files
-    print_step("Removing processed chunk files...")
+    _print_step("Removing processed chunk files...")
     rag = get_config().rag_client
     processed_dir = base_path / rag.chunk_dir
     if processed_dir.exists():
@@ -198,7 +206,7 @@ def run_clean() -> None:
             print(f"  Deleted: {file.name}")
 
     # Clean Qdrant collections
-    print_step("Removing Qdrant collections...")
+    _print_step("Removing Qdrant collections...")
     try:
         config = get_config()
         client = QdrantClient(url=config.rag_client.qdrant_url)
@@ -210,10 +218,10 @@ def run_clean() -> None:
             except Exception:
                 print(f"  Skipped: {collection} (not found)")
     except Exception as e:
-        print_warning(f"Could not connect to Qdrant: {e}")
+        _print_warning(f"Could not connect to Qdrant: {e}")
 
     print()
-    print_success("Clean complete")
+    _print_success("Clean complete")
 
 
 def main() -> None:
@@ -251,7 +259,7 @@ Examples:
     run_index = args.index or (not args.chunk and not args.index)
 
     # Print plan
-    print_header("VTK RAG Build Pipeline")
+    _print_header("VTK RAG Build Pipeline")
     print("This will:")
     if run_chunk:
         print("  1. Chunk raw data into semantic chunks")
@@ -261,7 +269,7 @@ Examples:
 
     # Check prerequisites
     skip_qdrant = run_chunk and not run_index
-    if not check_prerequisites(skip_qdrant=skip_qdrant):
+    if not _check_prerequisites(skip_qdrant=skip_qdrant):
         if not args.force:
             print()
             print("Use --force to continue anyway")
@@ -272,12 +280,12 @@ Examples:
 
         # Stage 1: Chunking
         if run_chunk:
-            chunk_results = run_chunking()
+            chunk_results = _run_chunking()
             results['chunks'] = chunk_results
 
         # Stage 2: Indexing
         if run_index:
-            index_results = run_indexing()
+            index_results = _run_indexing()
             results['indexes'] = index_results
 
         # Summary
@@ -285,7 +293,7 @@ Examples:
         minutes = int(elapsed // 60)
         seconds = int(elapsed % 60)
 
-        print_header("Build Complete")
+        _print_header("Build Complete")
         print(f"Total time: {minutes}m {seconds}s")
         print()
 
@@ -312,11 +320,11 @@ Examples:
 
     except KeyboardInterrupt:
         print()
-        print_warning("Build cancelled")
+        _print_warning("Build cancelled")
         sys.exit(1)
     except Exception as e:
         print()
-        print_error(f"Build failed: {e}")
+        _print_error(f"Build failed: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

@@ -3,6 +3,15 @@
 Creates two collections:
 - vtk_code: Code chunks from examples/tests with hybrid search
 - vtk_docs: Class/method documentation chunks with hybrid search
+
+Code Map:
+    Indexer
+        index()                      # public API - index all collections
+            ├── _index_collection()  # index single collection
+            │       ├── _load_chunks()        # load JSONL file
+            │       ├── _create_collection()  # create Qdrant collection
+            │       └── _index_chunks()       # batch upload points
+            └── _get_collection_info()        # collection status
 """
 
 import json
@@ -79,13 +88,13 @@ class Indexer:
 
         code_file = self.base_path / self.rag_client.chunk_dir / self.rag_client.code_chunks
         if code_file.exists():
-            results["vtk_code"] = self.index_collection(CODE_CONFIG, code_file, recreate, batch_size)
+            results["vtk_code"] = self._index_collection(CODE_CONFIG, code_file, recreate, batch_size)
         else:
             print(f"Warning: Code chunks file not found: {code_file}")
 
         doc_file = self.base_path / self.rag_client.chunk_dir / self.rag_client.doc_chunks
         if doc_file.exists():
-            results["vtk_docs"] = self.index_collection(DOC_CONFIG, doc_file, recreate, batch_size)
+            results["vtk_docs"] = self._index_collection(DOC_CONFIG, doc_file, recreate, batch_size)
         else:
             print(f"Warning: Doc chunks file not found: {doc_file}")
 
@@ -99,7 +108,7 @@ class Indexer:
         print("\nQdrant dashboard: http://localhost:6333/dashboard")
         return results
 
-    def index_collection(
+    def _index_collection(
         self,
         config: CollectionConfig,
         chunks_file: Path,
@@ -119,8 +128,8 @@ class Indexer:
         """
         print(f"Indexing {config.name} from {chunks_file}")
         chunks = self._load_chunks(chunks_file)
-        self.create_collection(config, recreate=recreate)
-        return self.index_chunks(config, chunks, batch_size=batch_size)
+        self._create_collection(config, recreate=recreate)
+        return self._index_chunks(config, chunks, batch_size=batch_size)
 
     def _load_chunks(self, file_path: Path) -> list[dict[str, Any]]:
         """Load chunks from JSONL file.
@@ -136,7 +145,7 @@ class Indexer:
         print(f"Loaded {len(chunks)} chunks from {file_path}")
         return chunks
 
-    def create_collection(self, config: CollectionConfig, recreate: bool = True) -> None:
+    def _create_collection(self, config: CollectionConfig, recreate: bool = True) -> None:
         """Create a Qdrant collection with configured indexes.
 
         Args:
@@ -187,7 +196,7 @@ class Indexer:
 
         print(f"Collection {collection_name} ready")
 
-    def index_chunks(
+    def _index_chunks(
         self,
         config: CollectionConfig,
         chunks: list[dict[str, Any]],

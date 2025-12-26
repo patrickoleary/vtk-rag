@@ -3,13 +3,13 @@
 Index VTK chunks into Qdrant for hybrid search.
 """
 
+from .indexer import Indexer
 from .models import (
     CODE_CONFIG,
     DOC_CONFIG,
     CollectionConfig,
     FieldConfig,
 )
-from .indexer import Indexer
 
 __all__ = [
     "Indexer",

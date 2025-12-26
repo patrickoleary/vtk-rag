@@ -1,4 +1,37 @@
-"""VTK API client using direct VTKAPIIndex access (no MCP subprocess)."""
+"""VTK API client using direct VTKAPIIndex access (no MCP subprocess).
+
+Used by:
+    - chunking/chunker.py (Chunker)
+    - chunking/code/chunker.py (CodeChunker)
+    - chunking/code/semantic_chunk.py (SemanticChunk)
+    - chunking/code/lifecycle/analyzer.py (LifecycleAnalyzer)
+    - chunking/code/lifecycle/builder.py (build_lifecycles)
+    - chunking/code/lifecycle/visitor.py (LifecycleVisitor)
+    - chunking/doc/chunker.py (DocChunker)
+    - chunking/query/semantic_query.py (SemanticQuery)
+
+Code Map:
+    VTKClient
+        is_vtk_class()               # check if class name is VTK
+        get_class_module()           # module path for class
+        get_class_modules()          # module paths for multiple classes
+        get_class_info()             # complete class metadata
+        get_class_role()             # functional role (input, filter, etc.)
+        get_class_visibility()       # visibility score (0.0-1.0)
+        get_class_action_phrase()    # action phrase for class
+        get_class_synopsis()         # brief synopsis
+        get_class_doc()              # class docstring
+        get_class_methods()          # list of methods with signatures
+        get_class_input_datatype()   # input data type
+        get_class_output_datatype()  # output data type
+        get_class_semantic_methods() # non-boilerplate methods
+        get_method_info()            # method metadata
+        get_method_doc()             # method docstring
+        get_method_signature()       # method signature
+        get_module_classes()         # classes in a module
+        search_classes()             # search by name/keyword
+    get_vtk_client()                 # singleton factory
+"""
 
 from __future__ import annotations
 

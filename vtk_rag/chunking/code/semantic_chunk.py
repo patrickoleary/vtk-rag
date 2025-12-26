@@ -1,4 +1,26 @@
-"""Build semantic chunks from grouped VTK object lifecycles."""
+"""Build semantic chunks from grouped VTK object lifecycles.
+
+This module transforms lifecycle groups into CodeChunk objects suitable for
+embedding and retrieval. Each chunk contains code, metadata, and semantic
+queries for similarity search.
+
+Called by:
+    CodeChunker._extract_function_chunks(), _extract_module_chunks(),
+    _extract_class_chunks() in chunker.py
+
+Code Map:
+    SemanticChunk
+        build_chunk()                    # main orchestrator (public API)
+            ├── _collect_from_lifecycles()   # gather statements, classes, variables
+            ├── _build_code()                # AST → code string with rewrites
+            ├── _determine_datatypes()       # input/output datatypes by role
+            ├── _compute_visibility()        # average visibility score
+            ├── _collect_methods()           # merge and dedupe methods per class
+            ├── _action_phrase()             # human-readable action description
+            ├── _synopsis()                  # detailed description with methods
+            │       └── _method_phrase()     # method call → natural language
+            └── _imports()                   # generate import statements
+"""
 
 from __future__ import annotations
 
@@ -8,8 +30,10 @@ from collections import defaultdict
 
 from vtk_rag.mcp import VTKClient
 
-from .models import CodeChunk
 from ..query import SemanticQuery
+from .lifecycle.models import LifecycleData
+from .lifecycle.utils import dedupe_method_calls, dedupe_preserve_order
+from .models import CodeChunk
 
 
 class SemanticChunk:
@@ -23,145 +47,154 @@ class SemanticChunk:
         self.chunk_counter = 0
         self.semantic_query = SemanticQuery(mcp_client)
 
-    def _build_chunk(self, group: list[dict], helper_function: str | None = None) -> dict:
-        """Build a chunk from one or more related lifecycles.
+    def build_chunk(self, group: list[dict], helper_function: str | None = None) -> dict:
+        """Build a CodeChunk from one or more related lifecycles.
 
-        Args:
-            group: List of lifecycle dictionaries to include in this chunk.
-            helper_function: Name of the helper function (e.g., 'make_hexahedron') for query generation.
-
-        Returns:
-            CodeChunk as a dictionary.
+        Output: CodeChunk dictionary with code, metadata, and semantic queries.
         """
-        # Collect all statements, classes, and variables from all lifecycles
-        all_statements = []
-        all_classes = []
-        all_variables = []
-        code_lines: list[str] = []
-        role = ""
+        # 1. Collect data from lifecycles
+        data = self._collect_from_lifecycles(group)
+        vtk_classes = dedupe_preserve_order(data.classes)
 
-        for lifecycle in group:
-            all_classes.append(lifecycle["class"])
-            if lifecycle.get("variable"):
-                all_variables.append(lifecycle["variable"])
-            # Add property classes (e.g., vtkProperty from actor.GetProperty())
-            for prop in lifecycle.get("properties", []):
-                if prop["class"] and prop["class"] not in all_classes:
-                    all_classes.append(prop["class"])
-            all_statements.extend(lifecycle["statements"])
-            if not role:
-                role = lifecycle["type"]
+        # 2. Build code content
+        full_code = self._build_code(data.statements, vtk_classes)
 
-        # Build code from lifecycle statements
-        for stmt in all_statements:
-            stmt_source = ast.get_source_segment(self.code, stmt)
-            if stmt_source:
-                code_lines.append(stmt_source)
+        # 3. Determine datatypes based on role
+        input_dt, output_dt = self._determine_datatypes(data.role, vtk_classes)
 
-        lifecycle_code = "\n".join(code_lines)
+        # 4. Compute visibility score
+        visibility = self._compute_visibility(vtk_classes)
 
-        # Rewrite vtk.vtkClass() → vtkClass() and self.var → var
-        rewritten_code = re.sub(r'\bvtk\.(vtk\w+)', r'\1', lifecycle_code)
-        rewritten_code = re.sub(r'\bself\.(\w+)', r'\1', rewritten_code)
+        # 5. Collect methods per class
+        class_methods, class_method_calls = self._collect_methods(group)
 
-        # Deduplicate classes maintaining order
-        vtk_classes = list(dict.fromkeys(all_classes))
-
-        # Generate imports
-        imports = self._imports(vtk_classes)
-
-        # Imports + Code chunk
-        full_chunk_code = "\n".join(imports) + "\n\n" + rewritten_code
-
-        # Determine datatypes based on role
-        input_datatype = ""
-        output_datatype = ""
-        if role == "renderer":
-            input_datatype = "vtkActor"
-            output_datatype = "vtkRenderer"
-        elif role in ("infrastructure", "scene"):
-            input_datatype = "vtkRenderer"
-        elif role == "properties":
-            # Find mapper to get input datatype
-            mapper_class = next((c for c in all_classes if "Mapper" in c), None)
-            actor_class = next((c for c in all_classes if "Actor" in c), None)
-            if mapper_class:
-                input_datatype = self.mcp_client.get_class_input_datatype(mapper_class) or ""
-                output_datatype = "vtkActor"
-            elif actor_class:
-                input_datatype = "vtkMapper"
-                output_datatype = "vtkActor"
-        else:
-            if vtk_classes:
-                input_datatype = self.mcp_client.get_class_input_datatype(vtk_classes[0]) or ""
-                output_datatype = self.mcp_client.get_class_output_datatype(vtk_classes[0]) or ""
-
-        # Compute visibility score
-        if not vtk_classes:
-            visibility_score = 0.5
-        else:
-            scores = []
-            for vtk_class in vtk_classes:
-                score = self.mcp_client.get_class_visibility(vtk_class)
-                scores.append(score if score is not None else 0.5)
-            visibility_score = sum(scores) / len(scores)
-
-        # Collect and deduplicate methods from lifecycles
-        class_methods: dict[str, list[str]] = {}
-        class_method_calls: dict[str, list[dict]] = {}
-        for lifecycle in group:
-            cls = lifecycle["class"]
-            # Dedupe methods by name
-            class_methods[cls] = list(dict.fromkeys(
-                class_methods.get(cls, []) + lifecycle.get("methods", [])
-            ))
-            # Dedupe method_calls by name (keep first occurrence)
-            existing = {mc["name"] for mc in class_method_calls.get(cls, [])}
-            class_method_calls[cls] = class_method_calls.get(cls, []) + [
-                mc for mc in lifecycle.get("method_calls", []) if mc["name"] not in existing
-            ]
-
-        # Build queries from classes and methods
-        semantic_queries = self.semantic_query.build(vtk_classes, class_method_calls)
-
-        # Add helper function query if this is a helper function
+        # 6. Build semantic queries
+        queries = self.semantic_query.build(vtk_classes, class_method_calls)
         if helper_function:
-            semantic_queries.append(self.semantic_query.function_name_to_query(helper_function))
+            queries.append(self.semantic_query.function_name_to_query(helper_function))
 
-        # Build action_phrase from classes and methods
+        # 7. Build descriptions
         action_phrase = self._action_phrase(vtk_classes)
-
-        # Build synopsis from classes and methods
         synopsis = self._synopsis(vtk_classes, class_method_calls)
 
-        # Build vtk_classes list
-        vtk_classes_data = [
-            {
-                "class": cls,
-                "variables": [lc["variable"] for lc in group if lc["class"] == cls],
-                "methods": class_methods.get(cls, []),
-            }
-            for cls in vtk_classes
-        ]
-
-        # Build CodeChunk
+        # 8. Assemble CodeChunk
         self.chunk_counter += 1
         chunk = CodeChunk(
             chunk_id=f"{self.filename}_chunk_{self.chunk_counter}",
             example_id=self.example_id,
             action_phrase=action_phrase,
             synopsis=synopsis,
-            role=role,
-            visibility_score=visibility_score,
-            input_datatype=input_datatype,
-            output_datatype=output_datatype,
-            content=full_chunk_code,
-            variable_name=", ".join(all_variables) if all_variables else "",
-            vtk_classes=vtk_classes_data,
-            queries=semantic_queries,
+            role=data.role,
+            visibility_score=visibility,
+            input_datatype=input_dt,
+            output_datatype=output_dt,
+            content=full_code,
+            variable_name=", ".join(data.variables) if data.variables else "",
+            vtk_classes=[
+                {
+                    "class": cls,
+                    "variables": [lc["variable"] for lc in group if lc["class"] == cls],
+                    "methods": class_methods.get(cls, []),
+                }
+                for cls in vtk_classes
+            ],
+            queries=queries,
         )
 
         return chunk.to_dict()
+
+    def _collect_from_lifecycles(self, group: list[dict]) -> LifecycleData:
+        """Collect statements, classes, variables, and role from lifecycle group."""
+        statements: list[ast.stmt] = []
+        classes: list[str] = []
+        variables: list[str] = []
+        role = ""
+
+        for lifecycle in group:
+            classes.append(lifecycle["class"])
+            if lifecycle.get("variable"):
+                variables.append(lifecycle["variable"])
+            # Include property classes (e.g., vtkProperty from actor.GetProperty())
+            for prop in lifecycle.get("properties", []):
+                if prop["class"] and prop["class"] not in classes:
+                    classes.append(prop["class"])
+            statements.extend(lifecycle["statements"])
+            if not role:
+                role = lifecycle["type"]
+
+        return LifecycleData(statements=statements, classes=classes, variables=variables, role=role)
+
+    def _build_code(self, statements: list[ast.stmt], vtk_classes: list[str]) -> str:
+        """Build code string from AST statements with imports and rewrites."""
+        # 1. Extract source from AST statements
+        code_lines = []
+        for stmt in statements:
+            source = ast.get_source_segment(self.code, stmt)
+            if source:
+                code_lines.append(source)
+        raw_code = "\n".join(code_lines)
+
+        # 2. Rewrite vtk.vtkClass() → vtkClass() and self.var → var
+        rewritten = re.sub(r'\bvtk\.(vtk\w+)', r'\1', raw_code)
+        rewritten = re.sub(r'\bself\.(\w+)', r'\1', rewritten)
+
+        # 3. Add imports
+        imports = self._imports(vtk_classes)
+        return "\n".join(imports) + "\n\n" + rewritten
+
+    def _determine_datatypes(self, role: str, vtk_classes: list[str]) -> tuple[str, str]:
+        """Determine input/output datatypes based on role and classes."""
+        if role == "renderer":
+            return "vtkActor", "vtkRenderer"
+
+        if role in ("infrastructure", "scene"):
+            return "vtkRenderer", ""
+
+        if role == "properties":
+            mapper_class = next((c for c in vtk_classes if "Mapper" in c), None)
+            actor_class = next((c for c in vtk_classes if "Actor" in c), None)
+            if mapper_class:
+                input_dt = self.mcp_client.get_class_input_datatype(mapper_class) or ""
+                return input_dt, "vtkActor"
+            if actor_class:
+                return "vtkMapper", "vtkActor"
+
+        # Default: use first class's datatypes
+        if vtk_classes:
+            input_dt = self.mcp_client.get_class_input_datatype(vtk_classes[0]) or ""
+            output_dt = self.mcp_client.get_class_output_datatype(vtk_classes[0]) or ""
+            return input_dt, output_dt
+
+        return "", ""
+
+    def _compute_visibility(self, vtk_classes: list[str]) -> float:
+        """Compute average visibility score for classes."""
+        if not vtk_classes:
+            return 0.5
+
+        scores = []
+        for vtk_class in vtk_classes:
+            score = self.mcp_client.get_class_visibility(vtk_class)
+            scores.append(score if score is not None else 0.5)
+        return sum(scores) / len(scores)
+
+    def _collect_methods(
+        self, group: list[dict]
+    ) -> tuple[dict[str, list[str]], dict[str, list[dict]]]:
+        """Collect and deduplicate methods per class from lifecycle group."""
+        class_methods: dict[str, list[str]] = {}
+        class_method_calls: dict[str, list[dict]] = {}
+
+        for lifecycle in group:
+            cls = lifecycle["class"]
+            # Merge and dedupe methods
+            merged_methods = class_methods.get(cls, []) + lifecycle.get("methods", [])
+            class_methods[cls] = dedupe_preserve_order(merged_methods)
+            # Merge and dedupe method_calls
+            merged_calls = class_method_calls.get(cls, []) + lifecycle.get("method_calls", [])
+            class_method_calls[cls] = dedupe_method_calls(merged_calls)
+
+        return class_methods, class_method_calls
 
     def _action_phrase(self, vtk_classes: list[str]) -> str:
         """Build action phrase from VTK classes.

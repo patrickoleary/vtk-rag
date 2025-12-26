@@ -31,8 +31,8 @@ from typing import Any
 
 from vtk_rag.mcp import VTKClient
 
-from .models import DocChunk
 from ..query import SemanticQuery
+from .models import DocChunk
 
 
 class DocChunker:
@@ -369,7 +369,7 @@ class DocChunker:
 
     def _extract_method_description(self, method_name: str, method_doc: str) -> str:
         """Extract description from method doc (last non-signature line)."""
-        lines = [l for l in method_doc.strip().split('\n') if l.strip()]
+        lines = [line for line in method_doc.strip().split('\n') if line.strip()]
         for line in reversed(lines):
             if not line.startswith(method_name) and '->' not in line:
                 return line.strip()

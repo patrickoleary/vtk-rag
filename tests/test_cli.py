@@ -62,7 +62,3 @@ class TestBuild:
         from vtk_rag.build import run_clean
         assert callable(run_clean)
 
-    def test_check_prerequisites_function_exists(self):
-        """Test that check_prerequisites function exists."""
-        from vtk_rag.build import check_prerequisites
-        assert callable(check_prerequisites)

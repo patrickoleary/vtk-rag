@@ -2,6 +2,23 @@
 
 Provides search operations over Qdrant collections with support for
 semantic, BM25, and hybrid search modes.
+
+Used by:
+    - cli.py (cmd_search)
+
+Code Map:
+    Retriever
+        search()                     # semantic search (dense vectors)
+        bm25_search()                # keyword search (sparse vectors)
+        hybrid_search()              # combined dense + sparse with RRF
+        search_code()                # convenience: search code collection
+        search_docs()                # convenience: search docs collection
+        search_by_class()            # filter by VTK class name
+        search_by_role()             # filter by pipeline role
+        search_by_datatype()         # filter by input/output type
+        search_by_module()           # filter by VTK module
+        search_by_chunk_type()       # filter by chunk type (docs)
+        _build_filter()              # convert dict to Qdrant Filter
 """
 
 from __future__ import annotations

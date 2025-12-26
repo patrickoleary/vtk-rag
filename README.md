@@ -84,9 +84,13 @@ vtk-rag search "query" -v              # Verbose (show content)
 ## Python API
 
 ```python
-from vtk_rag.retrieval import Retriever, FilterBuilder
+from vtk_rag.config import get_config
+from vtk_rag.rag import RAGClient
+from vtk_rag.retrieval import Retriever
 
-retriever = Retriever()
+config = get_config()
+rag_client = RAGClient(config)
+retriever = Retriever(rag_client)
 
 # Semantic search
 results = retriever.search("create a sphere", collection="vtk_code")
@@ -154,8 +158,8 @@ doc-chunks.jsonl    Collections
 
 | Collection | Chunks | Description |
 |------------|--------|-------------|
-| `vtk_code` | ~15,700 | Code examples from VTK examples/tests |
-| `vtk_docs` | ~32,800 | Class/method documentation |
+| `vtk_code` | ~17,300 | Code examples from VTK examples/tests |
+| `vtk_docs` | ~52,600 | Class/method documentation |
 
 ---
 
@@ -440,43 +444,69 @@ vtk_rag/
 ├── __main__.py          # python -m vtk_rag
 ├── cli.py               # Unified CLI
 ├── build.py             # Build pipeline
+├── config.py            # Configuration management
 │
 ├── chunking/
-│   ├── __init__.py      # Exports: Chunker, CodeChunker, DocChunker, etc.
-│   ├── chunk.py         # CLI entry point
-│   ├── chunker.py       # Chunker class
-│   ├── code_chunker.py  # Code chunk extraction
-│   ├── code_chunk.py    # CodeChunk dataclass
-│   ├── doc_chunker.py   # Doc chunk extraction
-│   ├── doc_chunk.py     # DocChunk dataclass
-│   ├── semantic_query_builder.py  # Query generation from action phrases
-│   ├── doc_query_generator.py
-│   ├── lifecycle_analyzer.py
-│   ├── semantic_chunk_builder.py
-│   └── vtk_categories.py
+│   ├── __init__.py      # Exports: Chunker, CodeChunker, DocChunker
+│   ├── chunker.py       # Chunker orchestrator
+│   │
+│   ├── code/            # Code chunking
+│   │   ├── __init__.py
+│   │   ├── chunker.py       # CodeChunker class
+│   │   ├── models.py        # CodeChunk dataclass
+│   │   ├── semantic_chunk.py # SemanticChunk builder
+│   │   │
+│   │   └── lifecycle/       # VTK lifecycle analysis
+│   │       ├── __init__.py
+│   │       ├── analyzer.py      # LifecycleAnalyzer
+│   │       ├── visitor.py       # AST visitor for VTK patterns
+│   │       ├── builder.py       # Build lifecycles from context
+│   │       ├── grouper.py       # Group lifecycles semantically
+│   │       ├── models.py        # LifecycleContext, VTKLifecycle
+│   │       ├── utils.py         # Deduplication helpers
+│   │       └── vtk_knowledge.py # VTK class/method patterns
+│   │
+│   ├── doc/             # Doc chunking
+│   │   ├── __init__.py
+│   │   ├── chunker.py       # DocChunker class
+│   │   └── models.py        # DocChunk dataclass
+│   │
+│   └── query/           # Query generation
+│       ├── __init__.py
+│       └── semantic_query.py # SemanticQuery builder
 │
 ├── mcp/
-│   ├── __init__.py          # Exports: VTKClient, get_vtk_client
-│   └── client.py            # VTK API client
+│   ├── __init__.py      # Exports: VTKClient, get_vtk_client
+│   └── client.py        # VTK API client
+│
+├── rag/
+│   ├── __init__.py      # Exports: RAGClient
+│   └── client.py        # RAGClient (Qdrant + embeddings)
 │
 ├── indexing/
-│   ├── __init__.py      # Exports: Indexer, CollectionConfig, FieldConfig
-│   ├── index.py         # CLI entry point
+│   ├── __init__.py      # Exports: Indexer
 │   ├── indexer.py       # Indexer class
-│   └── config.py
+│   └── models.py        # CollectionConfig, FieldConfig
 │
 └── retrieval/
-    ├── __init__.py      # Exports: Retriever, SearchResult, FilterBuilder
+    ├── __init__.py      # Exports: Retriever, SearchResult
     ├── retriever.py     # Retriever class
-    ├── filter_builder.py
-    └── result.py
+    └── models.py        # SearchResult dataclass
 
 tests/
-├── conftest.py          # Fixtures
-├── test_chunking.py
-├── test_indexing.py
-├── test_retrieval.py
-└── test_cli.py
+├── conftest.py              # Fixtures
+├── test_chunk_quality.py    # Chunk quality validation
+├── test_chunking.py         # Chunker tests
+├── test_cli.py              # CLI tests
+├── test_indexing.py         # Indexer tests
+├── test_lifecycle.py        # Lifecycle analysis tests
+├── test_rag_client.py       # RAGClient tests
+├── test_rendering_chunks.py # Rendering chunk tests
+└── test_retrieval.py        # Retriever tests
+
+examples/
+├── search_examples.py       # Search API demo
+└── show_chunks_by_role.py   # Display chunks by role
 ```
 
 ---

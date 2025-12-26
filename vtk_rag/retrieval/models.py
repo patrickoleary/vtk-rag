@@ -1,4 +1,24 @@
-"""Search result types for VTK RAG retrieval."""
+"""Search result types for VTK RAG retrieval.
+
+Used by:
+    - retriever.py (Retriever.search)
+
+Code Map:
+    SearchResult
+        from_qdrant()                # factory from Qdrant ScoredPoint
+        class_name                   # property: VTK class name
+        chunk_type                   # property: chunk type (docs only)
+        synopsis                     # property: brief summary
+        role                         # property: pipeline role
+        example_id                   # property: source example URL
+        variable_name                # property: primary variable
+        input_datatype               # property: input data type
+        output_datatype              # property: output data type
+        visibility_score             # property: user-facing likelihood
+        action_phrase                # property: action description
+        module                       # property: VTK module path
+        metadata                     # property: nested metadata dict
+"""
 
 from dataclasses import dataclass, field
 from typing import Any

@@ -1,6 +1,5 @@
 """Tests for the chunking module."""
 
-import types
 from pathlib import Path
 
 import pytest
@@ -21,7 +20,7 @@ class TestChunker:
         from vtk_rag.rag import RAGClient
 
         config = load_config()
-        rag_client = RAGClient(config.rag_client)
+        rag_client = RAGClient(config)
         chunker = Chunker(rag_client, mock_mcp_client)
         assert chunker.base_path is not None
 
@@ -32,7 +31,7 @@ class TestChunker:
         from vtk_rag.rag import RAGClient
 
         config = load_config()
-        rag_client = RAGClient(config.rag_client)
+        rag_client = RAGClient(config)
         chunker = Chunker(rag_client, mock_mcp_client, base_path=tmp_path)
         assert chunker.base_path == tmp_path
 
@@ -91,6 +90,7 @@ class TestQueryGenerators:
     def test_semantic_query_class_query(self):
         """Test class-level query generation."""
         from unittest.mock import MagicMock
+
         from vtk_rag.chunking.query import SemanticQuery
         mock_client = MagicMock()
         builder = SemanticQuery(mock_client)
@@ -100,6 +100,7 @@ class TestQueryGenerators:
     def test_semantic_query_method_query(self):
         """Test method-level query generation."""
         from unittest.mock import MagicMock
+
         from vtk_rag.chunking.query import SemanticQuery
         mock_client = MagicMock()
         builder = SemanticQuery(mock_client)
