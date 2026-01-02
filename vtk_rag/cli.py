@@ -94,6 +94,8 @@ def cmd_search(args: argparse.Namespace) -> None:
         filters["type"] = args.type
     if args.class_name:
         filters["class_name"] = args.class_name
+    if args.pythonic is not None:
+        filters["is_pythonic"] = args.pythonic == "true"
 
     # Execute search
     if collection:
@@ -174,6 +176,8 @@ def main() -> None:
     search_parser.add_argument("--role", help="Filter by role (e.g., source_geometric)")
     search_parser.add_argument("--type", help="Filter by chunk type")
     search_parser.add_argument("--class-name", dest="class_name", help="Filter by VTK class name")
+    search_parser.add_argument("--pythonic", type=str, choices=["true", "false"],
+                               help="Filter by Pythonic API style (true/false)")
 
     search_parser.set_defaults(func=cmd_search)
 

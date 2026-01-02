@@ -79,6 +79,7 @@ class SemanticChunk:
 
         # 8. Assemble CodeChunk
         self.chunk_counter += 1
+        is_pythonic = "PythonicAPI" in self.example_id
         chunk = CodeChunk(
             chunk_id=f"{self.filename}_chunk_{self.chunk_counter}",
             example_id=self.example_id,
@@ -99,6 +100,7 @@ class SemanticChunk:
                 for cls in vtk_classes
             ],
             queries=queries,
+            is_pythonic=is_pythonic,
         )
 
         return chunk.to_dict()

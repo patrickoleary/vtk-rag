@@ -40,6 +40,9 @@ class CodeChunk:
     # Queries for RAG retrieval
     queries: list[str] = field(default_factory=list)
 
+    # Example style
+    is_pythonic: bool = False
+
     def to_dict(self) -> dict[str, Any]:
         """Convert chunk to dictionary for serialization.
 
@@ -59,4 +62,5 @@ class CodeChunk:
             "vtk_classes": self.vtk_classes,
             "vtk_class_names": [c["class"] for c in self.vtk_classes if "class" in c],
             "queries": self.queries,
+            "is_pythonic": self.is_pythonic,
         }
